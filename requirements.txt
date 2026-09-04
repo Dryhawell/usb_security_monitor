@@ -1,0 +1,7 @@
+# USB Security Monitor
+# Python 3.12+ required
+#
+# Prefer the standard library. External packages will be added only
+# when a later phase requires them, with an explanation in that phase.
+#
+# Phase 1: no runtime dependencies.
