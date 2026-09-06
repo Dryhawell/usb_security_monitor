@@ -84,7 +84,7 @@ def detect_platform(
     notes: list[str] = []
     if windows:
         notes.append(
-            "Live USB monitoring will use a Windows event source in a later phase."
+            "Live USB events use WM_DEVICECHANGE (windows_wm_devicechange)."
         )
         if not found_powershell:
             notes.append(

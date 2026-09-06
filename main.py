@@ -1,7 +1,7 @@
 """USB Security Monitor entry point.
 
-Phase 3 adds platform detection and local permission checks.
-USB/WMI monitoring is still deferred.
+Phase 4 adds a Windows WM_DEVICECHANGE event source. Full USBMonitor
+normalization, inventory, and analysis are still deferred.
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 
 from usb_monitor import __app_name__, __version__
 from usb_monitor.models import (
@@ -20,13 +21,22 @@ from usb_monitor.models import (
     Severity,
     USBEvent,
 )
+from usb_monitor.monitoring import (
+    EventSourceUnavailableError,
+    WindowsEventSource,
+    create_event_source,
+)
 from usb_monitor.utils.logger import get_logger, setup_logging
 from usb_monitor.utils.permissions import (
     PermissionStatus,
     check_permissions,
     format_elevation,
 )
-from usb_monitor.utils.platform import PlatformInfo, detect_platform
+from usb_monitor.utils.platform import (
+    PlatformInfo,
+    UnsupportedPlatformError,
+    detect_platform,
+)
 from usb_monitor.utils.time import utc_now
 
 
@@ -71,12 +81,33 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Show platform, permission, and monitoring-capability status.",
     )
+    parser.add_argument(
+        "--probe-source",
+        action="store_true",
+        help="Start and stop the Windows event source without waiting for USB devices.",
+    )
+    parser.add_argument(
+        "--listen-source",
+        action="store_true",
+        help="Listen for raw WM_DEVICECHANGE events (does not execute USB files).",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=15.0,
+        metavar="SECONDS",
+        help="Listen duration for --listen-source (default: 15).",
+    )
     return parser.parse_args(argv)
 
 
 def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
     """Build a human-readable local status report. No device data included."""
     live = "supported (not started yet)" if info.live_monitoring_supported else "not supported"
+    if WindowsEventSource.is_available():
+        source_label = "windows_wm_devicechange (idle)"
+    else:
+        source_label = "unavailable on this platform"
     lines = [
         f"{__app_name__} v{__version__}",
         "",
@@ -85,6 +116,7 @@ def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
         f"  Architecture: {info.architecture}",
         f"  Python: {info.python_version}",
         f"  Live USB monitoring: {live}",
+        f"  Event source: {source_label}",
         f"  PowerShell on PATH: {'Yes' if info.powershell_available else 'No'}",
         "",
         "Permissions",
@@ -164,6 +196,59 @@ def demo_models() -> None:
     print(alert)
 
 
+def probe_event_source() -> int:
+    """Verify the native source can start and stop. Does not need a USB device."""
+    try:
+        source = create_event_source()
+        source.start()
+    except (UnsupportedPlatformError, EventSourceUnavailableError) as exc:
+        print(f"Event source unavailable: {exc}")
+        return 1
+    try:
+        time.sleep(0.3)
+        running = source.is_running
+        print(f"Mechanism: {source.mechanism}")
+        print(f"Running: {running}")
+        print("Probe result: OK" if running else "Probe result: FAILED")
+        return 0 if running else 1
+    finally:
+        source.stop()
+
+
+def listen_event_source(timeout: float) -> int:
+    """Print raw OS events until timeout. Does not open or run USB files."""
+    if timeout < 0:
+        print("timeout must be >= 0")
+        return 2
+    print(f"Listening via windows_wm_devicechange for {timeout:.0f}s.")
+    print("Plug or unplug authorized USB storage to see RAW events.")
+    print("No files on the device will be opened or executed. Ctrl+C to stop.")
+    print()
+    try:
+        source = create_event_source()
+        source.start()
+    except (UnsupportedPlatformError, EventSourceUnavailableError) as exc:
+        print(f"Event source unavailable: {exc}")
+        return 1
+    seen = 0
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            event = source.poll(timeout=min(0.5, remaining))
+            if event is None:
+                continue
+            seen += 1
+            print(event.format_console())
+    finally:
+        source.stop()
+    print()
+    print(f"Raw events observed: {seen}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the current-phase application skeleton."""
     args = parse_args(argv)
@@ -171,7 +256,7 @@ def main(argv: list[str] | None = None) -> int:
     logger = get_logger("main")
 
     logger.info("%s %s started", __app_name__, __version__)
-    logger.info("Phase 3: platform detection and permission checks; no USB monitoring yet")
+    logger.info("Phase 4: Windows event source available; USBMonitor not started")
 
     info = detect_platform()
     perms = check_permissions()
@@ -189,10 +274,16 @@ def main(argv: list[str] | None = None) -> int:
         demo_models()
         return 0
 
+    if args.probe_source:
+        return probe_event_source()
+
+    if args.listen_source:
+        return listen_event_source(args.timeout)
+
     print(f"{__app_name__} v{__version__}")
     print(f"Platform: {info.display_name}")
-    print("Phase 3 complete: platform detection and permission checks are ready.")
-    print("Run with --status for details. USB monitoring comes in later phases.")
+    print("Phase 4 complete: Windows WM_DEVICECHANGE event source is ready.")
+    print("Run --probe-source (no USB needed) or --listen-source to wait for RAW events.")
     return 0 if perms.can_persist else 1
 
 
