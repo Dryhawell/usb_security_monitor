@@ -10,8 +10,9 @@ This project is intended for:
 - endpoint security fundamentals
 - Windows-focused USB event monitoring
 
-**Current status:** Phase 1 — project initialization. Device monitoring,
-analysis, inventory, alerts, and CLI commands are not implemented yet.
+**Current status:** Phase 2 — data models (`Device`, `USBEvent`, `Alert`).
+Device monitoring, analysis, inventory, and CLI commands are not
+implemented yet.
 
 ## Overview
 
@@ -105,6 +106,7 @@ python main.py --help
 python main.py
 python main.py --version
 python main.py --verbose
+python main.py --demo-models
 ```
 
 ## Architecture (target)
