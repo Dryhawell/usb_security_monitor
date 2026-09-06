@@ -1,7 +1,7 @@
 """USB Security Monitor entry point.
 
-Phase 2 adds Device, USBEvent, and Alert models. Monitoring and
-analysis are still deferred to later phases.
+Phase 3 adds platform detection and local permission checks.
+USB/WMI monitoring is still deferred.
 """
 
 from __future__ import annotations
@@ -21,6 +21,12 @@ from usb_monitor.models import (
     USBEvent,
 )
 from usb_monitor.utils.logger import get_logger, setup_logging
+from usb_monitor.utils.permissions import (
+    PermissionStatus,
+    check_permissions,
+    format_elevation,
+)
+from usb_monitor.utils.platform import PlatformInfo, detect_platform
 from usb_monitor.utils.time import utc_now
 
 
@@ -60,7 +66,43 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Print sample Device, USBEvent, and Alert JSON (no USB access).",
     )
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Show platform, permission, and monitoring-capability status.",
+    )
     return parser.parse_args(argv)
+
+
+def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
+    """Build a human-readable local status report. No device data included."""
+    live = "supported (not started yet)" if info.live_monitoring_supported else "not supported"
+    lines = [
+        f"{__app_name__} v{__version__}",
+        "",
+        "Platform",
+        f"  OS: {info.display_name}",
+        f"  Architecture: {info.architecture}",
+        f"  Python: {info.python_version}",
+        f"  Live USB monitoring: {live}",
+        f"  PowerShell on PATH: {'Yes' if info.powershell_available else 'No'}",
+        "",
+        "Permissions",
+        f"  Elevated administrator: {format_elevation(perms.is_elevated)}",
+        f"  data/ writable: {'Yes' if perms.data_writable else 'No'}",
+        f"  logs/ writable: {'Yes' if perms.logs_writable else 'No'}",
+        "",
+        "Notes",
+    ]
+    for note in info.notes:
+        lines.append(f"  - {note}")
+    if perms.is_elevated is False:
+        lines.append(
+            "  - Running as a standard user is expected. Elevation is optional."
+        )
+    for issue in perms.issues:
+        lines.append(f"  - {issue}")
+    return "\n".join(lines)
 
 
 def demo_models() -> None:
@@ -129,16 +171,29 @@ def main(argv: list[str] | None = None) -> int:
     logger = get_logger("main")
 
     logger.info("%s %s started", __app_name__, __version__)
-    logger.info("Phase 2: data models available; no device monitoring yet")
+    logger.info("Phase 3: platform detection and permission checks; no USB monitoring yet")
+
+    info = detect_platform()
+    perms = check_permissions()
+    logger.info("Platform: %s", info.display_name)
+    if not info.live_monitoring_supported:
+        logger.warning("Live USB monitoring is not supported on this platform")
+    if not perms.can_persist:
+        logger.error("Local data or log directories are not writable")
+
+    if args.status:
+        print(format_status(info, perms))
+        return 0 if perms.can_persist else 1
 
     if args.demo_models:
         demo_models()
         return 0
 
     print(f"{__app_name__} v{__version__}")
-    print("Phase 2 complete: Device, USBEvent, and Alert models are ready.")
-    print("Run with --demo-models to inspect sample JSON. Monitoring comes later.")
-    return 0
+    print(f"Platform: {info.display_name}")
+    print("Phase 3 complete: platform detection and permission checks are ready.")
+    print("Run with --status for details. USB monitoring comes in later phases.")
+    return 0 if perms.can_persist else 1
 
 
 if __name__ == "__main__":

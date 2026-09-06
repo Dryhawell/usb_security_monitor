@@ -29,6 +29,7 @@ data/reports/*
 !data/reports/.gitkeep
 data/inventory/*
 !data/inventory/.gitkeep
+**/.write_probe
 
 # IDE / editor
 .idea/
