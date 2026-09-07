@@ -10,9 +10,8 @@ This project is intended for:
 - endpoint security fundamentals
 - Windows-focused USB event monitoring
 
-**Current status:** Phase 4 — Windows `WM_DEVICECHANGE` event source.
-USBMonitor normalization, inventory, analysis, and CLI commands are not
-implemented yet.
+**Current status:** Phase 5 — USBMonitor coalesces CONNECT/DISCONNECT events.
+Inventory, risk analysis, and the full CLI are not implemented yet.
 
 ## Overview
 
@@ -110,6 +109,8 @@ python main.py --status
 python main.py --demo-models
 python main.py --probe-source
 python main.py --listen-source --timeout 20
+python main.py --demo-normalize
+python main.py --monitor --timeout 20
 ```
 
 ## Architecture (target)

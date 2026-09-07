@@ -120,6 +120,23 @@ def parse_vid_pid_from_path(device_path: str | None) -> tuple[str | None, str | 
     return match.group(1).upper(), match.group(2).upper()
 
 
+def parse_instance_id_from_path(device_path: str | None) -> str | None:
+    """Return the instance/serial segment of a device path, if present.
+
+    The OS already placed this value on the path. Missing segments stay
+    ``None``; nothing is invented.
+    """
+    if not device_path:
+        return None
+    parts = device_path.split("#")
+    if len(parts) < 3:
+        return None
+    instance = parts[2].strip()
+    if not instance or instance.startswith("{"):
+        return None
+    return instance
+
+
 def redact_device_path(device_path: str | None) -> str | None:
     """Mask the instance/serial segment of a Windows device path.
 

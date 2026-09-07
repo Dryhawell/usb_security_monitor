@@ -1,7 +1,7 @@
 """USB Security Monitor entry point.
 
-Phase 4 adds a Windows WM_DEVICECHANGE event source. Full USBMonitor
-normalization, inventory, and analysis are still deferred.
+Phase 5 adds USBMonitor: coalesced CONNECT/DISCONNECT events.
+Inventory, risk analysis, and the full CLI are still deferred.
 """
 
 from __future__ import annotations
@@ -22,9 +22,14 @@ from usb_monitor.models import (
     USBEvent,
 )
 from usb_monitor.monitoring import (
+    EventNormalizer,
     EventSourceUnavailableError,
+    RawAction,
+    RawDeviceEvent,
     WindowsEventSource,
     create_event_source,
+    create_monitor,
+    format_live_event,
 )
 from usb_monitor.utils.logger import get_logger, setup_logging
 from usb_monitor.utils.permissions import (
@@ -96,7 +101,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=float,
         default=15.0,
         metavar="SECONDS",
-        help="Listen duration for --listen-source (default: 15).",
+        help="Listen duration for --listen-source and --monitor (default: 15).",
+    )
+    parser.add_argument(
+        "--monitor",
+        action="store_true",
+        help="Show coalesced CONNECT/DISCONNECT events (does not execute USB files).",
+    )
+    parser.add_argument(
+        "--demo-normalize",
+        action="store_true",
+        help="Run sample raw-event coalescing without USB hardware.",
     )
     return parser.parse_args(argv)
 
@@ -117,6 +132,7 @@ def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
         f"  Python: {info.python_version}",
         f"  Live USB monitoring: {live}",
         f"  Event source: {source_label}",
+        f"  USBMonitor: ready (coalesced CONNECT/DISCONNECT)",
         f"  PowerShell on PATH: {'Yes' if info.powershell_available else 'No'}",
         "",
         "Permissions",
@@ -249,6 +265,114 @@ def listen_event_source(timeout: float) -> int:
     return 0
 
 
+class _FakeClock:
+    """Monotonic clock that tests can advance without waiting."""
+
+    def __init__(self, start: float = 0.0) -> None:
+        self.now = start
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def demo_normalize() -> int:
+    """Show that USB+disk+volume raw signals become one USBEvent. No hardware."""
+    clock = _FakeClock()
+    normalizer = EventNormalizer(clock=clock)
+    usb_path = r"\\?\USB#VID_0781&PID_5581#DEMO1234#{a5dcbf10-6530-11d2-901f-00c04fb951ed}"
+    disk_path = r"\\?\USBSTOR#Disk&Ven_Generic&Prod_Storage#DEMO1234&0#{53f56307-b6bf-11d0-94f2-00a0c91efb8b}"
+    burst = [
+        RawDeviceEvent(
+            action=RawAction.CONNECT,
+            source="demo",
+            kind="usb",
+            device_path=usb_path,
+            vendor_id="0781",
+            product_id="5581",
+        ),
+        RawDeviceEvent(
+            action=RawAction.CONNECT,
+            source="demo",
+            kind="disk",
+            device_path=disk_path,
+        ),
+        RawDeviceEvent(
+            action=RawAction.CONNECT,
+            source="demo",
+            kind="volume",
+            drive_letter="E:",
+        ),
+    ]
+    print("Raw signals (simulated, 3 OS notifications):")
+    for raw in burst:
+        clock.advance(0.05)
+        emitted = normalizer.ingest(raw)
+        print(f"  {raw.format_console()} -> pending logical events: {len(emitted)}")
+
+    clock.advance(0.5)
+    events = normalizer.flush_ready()
+    print()
+    print(f"Logical USB events after quiet window: {len(events)}")
+    for event in events:
+        print()
+        print(format_live_event(event))
+        print(f"raw_count={event.details.get('raw_count')} coalesced={event.details.get('coalesced')}")
+
+    noise = EventNormalizer(clock=clock)
+    clock.advance(0.05)
+    noise.ingest(
+        RawDeviceEvent(action=RawAction.CONNECT, source="demo", kind="disk")
+    )
+    clock.advance(0.5)
+    dropped = noise.flush_ready()
+    print()
+    print(f"Disk-only burst (internal disk noise) emitted: {len(dropped)}")
+    ok = len(events) == 1 and events[0].event_type is EventType.CONNECT and not dropped
+    print("Demo result: OK" if ok else "Demo result: FAILED")
+    return 0 if ok else 1
+
+
+def run_monitor(timeout: float) -> int:
+    """Listen for coalesced CONNECT/DISCONNECT events. Does not touch USB files."""
+    if timeout < 0:
+        print("timeout must be >= 0")
+        return 2
+    print(f"USBMonitor listening for {timeout:.0f}s.")
+    print("Plug or unplug authorized USB storage.")
+    print("No files on the device will be opened or executed. Ctrl+C to stop.")
+    print()
+    try:
+        monitor = create_monitor()
+        monitor.start()
+    except (UnsupportedPlatformError, EventSourceUnavailableError) as exc:
+        print(f"USB monitor unavailable: {exc}")
+        return 1
+    seen = 0
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            event = monitor.poll(timeout=min(0.5, remaining))
+            if event is None:
+                continue
+            seen += 1
+            print(format_live_event(event))
+            print()
+    finally:
+        monitor.stop()
+        for event in monitor.drain():
+            seen += 1
+            print(format_live_event(event))
+            print()
+    print(f"Logical USB events observed: {seen}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the current-phase application skeleton."""
     args = parse_args(argv)
@@ -256,7 +380,7 @@ def main(argv: list[str] | None = None) -> int:
     logger = get_logger("main")
 
     logger.info("%s %s started", __app_name__, __version__)
-    logger.info("Phase 4: Windows event source available; USBMonitor not started")
+    logger.info("Phase 5: USBMonitor coalesces CONNECT/DISCONNECT; no inventory yet")
 
     info = detect_platform()
     perms = check_permissions()
@@ -274,16 +398,22 @@ def main(argv: list[str] | None = None) -> int:
         demo_models()
         return 0
 
+    if args.demo_normalize:
+        return demo_normalize()
+
     if args.probe_source:
         return probe_event_source()
 
     if args.listen_source:
         return listen_event_source(args.timeout)
 
+    if args.monitor:
+        return run_monitor(args.timeout)
+
     print(f"{__app_name__} v{__version__}")
     print(f"Platform: {info.display_name}")
-    print("Phase 4 complete: Windows WM_DEVICECHANGE event source is ready.")
-    print("Run --probe-source (no USB needed) or --listen-source to wait for RAW events.")
+    print("Phase 5 complete: USBMonitor emits coalesced CONNECT/DISCONNECT events.")
+    print("Run --demo-normalize (no USB) or --monitor --timeout 20 to watch live events.")
     return 0 if perms.can_persist else 1
 
 

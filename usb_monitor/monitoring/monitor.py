@@ -1,0 +1,99 @@
+"""USBMonitor: connect/disconnect detection over an EventSource.
+
+Detection stays in the event source. This class only normalizes those
+raw notifications into USBEvent records. Inventory and risk analysis
+are later phases.
+"""
+
+from __future__ import annotations
+
+import time
+from collections import deque
+
+from usb_monitor.models.event import USBEvent
+from usb_monitor.monitoring.event_source import EventSource
+from usb_monitor.monitoring.normalizer import EventNormalizer
+from usb_monitor.utils.logger import get_logger
+
+_POLL_SLICE = 0.2
+
+
+class USBMonitor:
+    """Read raw OS events and yield coalesced CONNECT/DISCONNECT USBEvents."""
+
+    def __init__(
+        self,
+        source: EventSource,
+        *,
+        normalizer: EventNormalizer | None = None,
+    ) -> None:
+        self._source = source
+        self._normalizer = normalizer or EventNormalizer(clock=time.monotonic)
+        self._pending: deque[USBEvent] = deque()
+        self._log = get_logger("monitoring.usb")
+
+    @property
+    def is_running(self) -> bool:
+        return self._source.is_running
+
+    @property
+    def mechanism(self) -> str:
+        return self._source.mechanism
+
+    def start(self) -> None:
+        self._source.start()
+        self._log.info("USB monitor started (source=%s)", self.mechanism)
+
+    def stop(self, timeout: float = 5.0) -> None:
+        try:
+            for event in self._normalizer.flush_all():
+                self._pending.append(event)
+        finally:
+            self._source.stop(timeout=timeout)
+            self._log.info("USB monitor stopped")
+
+    def poll(self, timeout: float | None = None) -> USBEvent | None:
+        """Return the next logical USB event, or ``None`` if the timeout expires."""
+        if self._pending:
+            return self._pending.popleft()
+
+        if timeout is None:
+            return self._wait_for_event(None)
+
+        if timeout < 0:
+            raise ValueError("timeout must be >= 0")
+        return self._wait_for_event(timeout)
+
+    def drain(self) -> list[USBEvent]:
+        """Return any coalesced events waiting in the local buffer."""
+        events = list(self._pending)
+        self._pending.clear()
+        events.extend(self._normalizer.flush_ready())
+        return events
+
+    def _wait_for_event(self, timeout: float | None) -> USBEvent | None:
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            if self._pending:
+                return self._pending.popleft()
+
+            remaining: float | None
+            if deadline is None:
+                remaining = _POLL_SLICE
+            else:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    for event in self._normalizer.flush_ready():
+                        self._pending.append(event)
+                    return self._pending.popleft() if self._pending else None
+
+            raw = self._source.poll(timeout=min(_POLL_SLICE, remaining))
+            if raw is None:
+                for event in self._normalizer.flush_ready():
+                    self._pending.append(event)
+                continue
+
+            produced = self._normalizer.ingest(raw)
+            for event in produced:
+                self._pending.append(event)
+                self._log.info("%s", event)

@@ -9,6 +9,7 @@ from typing import Any
 
 from usb_monitor.models.device import normalize_drive_letter, normalize_hardware_id, normalize_optional_text
 from usb_monitor.models.enums import DeviceType, EventType, RiskLevel, parse_enum
+from usb_monitor.utils.logger import mask_identifier
 from usb_monitor.utils.time import format_display, from_iso8601, to_iso8601, utc_now
 
 
@@ -60,6 +61,17 @@ class USBEvent:
         """Human-readable UTC timestamp for CLI and reports."""
         return format_display(self.timestamp)
 
+    @property
+    def safe_device_id(self) -> str:
+        """Identity string with a masked serial, safe for logs and console."""
+        if not self.device_id:
+            return "Unknown"
+        if self.serial_number and self.serial_number in self.device_id:
+            return self.device_id.replace(
+                self.serial_number, mask_identifier(self.serial_number), 1
+            )
+        return self.device_id
+
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable representation."""
         return {
@@ -105,5 +117,5 @@ class USBEvent:
         )
 
     def __str__(self) -> str:
-        name = self.device_name or self.device_id or "Unknown"
+        name = self.device_name or self.safe_device_id
         return f"[{self.display_timestamp}] {self.event_type.value} {name}"
