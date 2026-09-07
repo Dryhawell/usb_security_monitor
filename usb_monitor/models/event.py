@@ -31,6 +31,11 @@ class USBEvent:
     serial_number: str | None = None
     drive_letter: str | None = None
     device_type: DeviceType = DeviceType.UNKNOWN
+    manufacturer: str | None = None
+    pnp_device_id: str | None = None
+    removable: bool | None = None
+    filesystem: str | None = None
+    capacity: int | None = None
     source: str = "unknown"
     risk_score: int | None = None
     risk_level: RiskLevel | None = None
@@ -49,6 +54,11 @@ class USBEvent:
         self.product_id = normalize_hardware_id(self.product_id)
         self.serial_number = normalize_optional_text(self.serial_number)
         self.drive_letter = normalize_drive_letter(self.drive_letter)
+        self.manufacturer = normalize_optional_text(self.manufacturer)
+        self.pnp_device_id = normalize_optional_text(self.pnp_device_id)
+        self.filesystem = normalize_optional_text(self.filesystem)
+        if self.capacity is not None and self.capacity < 0:
+            raise ValueError("capacity cannot be negative")
         if not isinstance(self.device_type, DeviceType):
             self.device_type = DeviceType(str(self.device_type))
         source = normalize_optional_text(self.source)
@@ -85,6 +95,11 @@ class USBEvent:
             "serial_number": self.serial_number,
             "drive_letter": self.drive_letter,
             "device_type": self.device_type.value,
+            "manufacturer": self.manufacturer,
+            "pnp_device_id": self.pnp_device_id,
+            "removable": self.removable,
+            "filesystem": self.filesystem,
+            "capacity": self.capacity,
             "source": self.source,
             "risk_score": self.risk_score,
             "risk_level": self.risk_level.value if self.risk_level else None,
@@ -110,6 +125,11 @@ class USBEvent:
             device_type=parse_enum(
                 DeviceType, data.get("device_type"), DeviceType.UNKNOWN
             ) or DeviceType.UNKNOWN,
+            manufacturer=data.get("manufacturer"),
+            pnp_device_id=data.get("pnp_device_id"),
+            removable=data.get("removable"),
+            filesystem=data.get("filesystem"),
+            capacity=data.get("capacity"),
             source=str(data.get("source") or "unknown"),
             risk_score=data.get("risk_score"),
             risk_level=parse_enum(RiskLevel, data.get("risk_level")),

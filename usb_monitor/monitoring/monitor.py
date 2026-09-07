@@ -1,8 +1,8 @@
 """USBMonitor: connect/disconnect detection over an EventSource.
 
-Detection stays in the event source. This class only normalizes those
-raw notifications into USBEvent records. Inventory and risk analysis
-are later phases.
+Detection stays in the event source. Normalization produces USBEvent
+records. Metadata collection fills OS-exposed properties. Inventory
+and risk analysis are later phases.
 """
 
 from __future__ import annotations
@@ -12,6 +12,11 @@ from collections import deque
 
 from usb_monitor.models.event import USBEvent
 from usb_monitor.monitoring.event_source import EventSource
+from usb_monitor.monitoring.metadata import (
+    MetadataCollector,
+    NullMetadataCollector,
+    apply_metadata,
+)
 from usb_monitor.monitoring.normalizer import EventNormalizer
 from usb_monitor.utils.logger import get_logger
 
@@ -26,9 +31,11 @@ class USBMonitor:
         source: EventSource,
         *,
         normalizer: EventNormalizer | None = None,
+        collector: MetadataCollector | None = None,
     ) -> None:
         self._source = source
         self._normalizer = normalizer or EventNormalizer(clock=time.monotonic)
+        self._collector = collector or NullMetadataCollector()
         self._pending: deque[USBEvent] = deque()
         self._log = get_logger("monitoring.usb")
 
@@ -42,12 +49,16 @@ class USBMonitor:
 
     def start(self) -> None:
         self._source.start()
-        self._log.info("USB monitor started (source=%s)", self.mechanism)
+        self._log.info(
+            "USB monitor started (source=%s metadata=%s)",
+            self.mechanism,
+            self._collector.mechanism,
+        )
 
     def stop(self, timeout: float = 5.0) -> None:
         try:
             for event in self._normalizer.flush_all():
-                self._pending.append(event)
+                self._queue_event(event)
         finally:
             self._source.stop(timeout=timeout)
             self._log.info("USB monitor stopped")
@@ -66,10 +77,21 @@ class USBMonitor:
 
     def drain(self) -> list[USBEvent]:
         """Return any coalesced events waiting in the local buffer."""
+        for event in self._normalizer.flush_ready():
+            self._queue_event(event)
         events = list(self._pending)
         self._pending.clear()
-        events.extend(self._normalizer.flush_ready())
         return events
+
+    def _queue_event(self, event: USBEvent) -> None:
+        try:
+            metadata = self._collector.collect(event)
+        except (OSError, ValueError, TypeError):
+            self._log.warning("Metadata collection failed; emitting event with known fields only")
+            metadata = NullMetadataCollector().collect(event)
+        apply_metadata(event, metadata)
+        self._pending.append(event)
+        self._log.info("%s", event)
 
     def _wait_for_event(self, timeout: float | None) -> USBEvent | None:
         deadline = None if timeout is None else time.monotonic() + timeout
@@ -84,16 +106,15 @@ class USBMonitor:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     for event in self._normalizer.flush_ready():
-                        self._pending.append(event)
+                        self._queue_event(event)
                     return self._pending.popleft() if self._pending else None
 
             raw = self._source.poll(timeout=min(_POLL_SLICE, remaining))
             if raw is None:
                 for event in self._normalizer.flush_ready():
-                    self._pending.append(event)
+                    self._queue_event(event)
                 continue
 
             produced = self._normalizer.ingest(raw)
             for event in produced:
-                self._pending.append(event)
-                self._log.info("%s", event)
+                self._queue_event(event)

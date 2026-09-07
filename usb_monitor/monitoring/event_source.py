@@ -137,6 +137,34 @@ def parse_instance_id_from_path(device_path: str | None) -> str | None:
     return instance
 
 
+def device_path_to_instance_id(device_path: str | None) -> str | None:
+    """Convert a ``\\\\?\\USB#VID_...`` interface path to a PnP instance ID."""
+    if not device_path:
+        return None
+    text = device_path.strip()
+    for prefix in ("\\\\?\\", "\\\\.\\"):
+        if text.startswith(prefix):
+            text = text[len(prefix) :]
+            break
+    parts = [part for part in text.split("#") if part and not part.startswith("{")]
+    if len(parts) < 2:
+        return None
+    if len(parts) >= 3:
+        return f"{parts[0]}\\{parts[1]}\\{parts[2]}"
+    return f"{parts[0]}\\{parts[1]}"
+
+
+def redact_pnp_device_id(pnp_device_id: str | None) -> str | None:
+    """Mask the instance/serial segment of a PnP device ID for logs."""
+    if not pnp_device_id:
+        return None
+    parts = pnp_device_id.split("\\")
+    if len(parts) >= 3 and parts[-1]:
+        parts[-1] = mask_identifier(parts[-1])
+        return "\\".join(parts)
+    return pnp_device_id
+
+
 def redact_device_path(device_path: str | None) -> str | None:
     """Mask the instance/serial segment of a Windows device path.
 

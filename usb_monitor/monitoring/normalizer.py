@@ -20,6 +20,7 @@ from usb_monitor.models.event import USBEvent
 from usb_monitor.monitoring.event_source import (
     RawAction,
     RawDeviceEvent,
+    device_path_to_instance_id,
     parse_instance_id_from_path,
     redact_device_path,
 )
@@ -168,6 +169,7 @@ def burst_to_event(burst: _Burst) -> USBEvent:
     )
     if device_id is None and burst.drive_letter:
         device_id = f"volume:{burst.drive_letter}"
+    pnp_device_id = device_path_to_instance_id(burst.device_path)
     return USBEvent(
         event_type=event_type,
         timestamp=burst.first_timestamp,
@@ -177,6 +179,7 @@ def burst_to_event(burst: _Burst) -> USBEvent:
         serial_number=burst.instance_id,
         drive_letter=burst.drive_letter,
         device_type=_device_type_for(burst),
+        pnp_device_id=pnp_device_id,
         source=burst.source,
         details={
             "coalesced": burst.raw_count > 1,
@@ -194,22 +197,48 @@ def format_live_event(event: USBEvent) -> str:
     serial = mask_identifier(event.serial_number) if event.serial_number else "Unknown"
     kinds = event.details.get("kinds") if isinstance(event.details, dict) else None
     signals = ", ".join(kinds) if isinstance(kinds, list) and kinds else "unknown"
+    removable = _format_optional_bool(event.removable)
     return "\n".join(
         [
             f"[{event.display_timestamp}] {verb}",
             "",
             "Device:",
+            f"  Manufacturer: {event.manufacturer or 'Unknown'}",
+            f"  Product: {event.device_name or 'Unknown'}",
             f"  Identity: {event.safe_device_id}",
             f"  VID: {event.vendor_id or 'Unknown'}",
             f"  PID: {event.product_id or 'Unknown'}",
             f"  Serial: {serial}",
             f"  Drive: {event.drive_letter or 'Unknown'}",
+            f"  Removable: {removable}",
+            f"  Filesystem: {event.filesystem or 'Unknown'}",
+            f"  Capacity: {_format_capacity(event.capacity)}",
             f"  Type: {event.device_type.value}",
             f"  Signals: {signals}",
             "",
             "--------------------------------",
         ]
     )
+
+
+def _format_optional_bool(value: bool | None) -> str:
+    if value is True:
+        return "Yes"
+    if value is False:
+        return "No"
+    return "Unknown"
+
+
+def _format_capacity(capacity: int | None) -> str:
+    if capacity is None:
+        return "Unknown"
+    gib = 1024 ** 3
+    mib = 1024 ** 2
+    if capacity >= gib:
+        return f"{capacity / gib:.1f} GiB"
+    if capacity >= mib:
+        return f"{capacity / mib:.1f} MiB"
+    return f"{capacity} bytes"
 
 
 def _prefer_path(candidate: str, current: str | None) -> bool:

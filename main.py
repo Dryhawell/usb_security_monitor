@@ -1,7 +1,8 @@
 """USB Security Monitor entry point.
 
-Phase 5 adds USBMonitor: coalesced CONNECT/DISCONNECT events.
-Inventory, risk analysis, and the full CLI are still deferred.
+Phase 6 adds OS-exposed device metadata (VID/PID, manufacturer, serial,
+drive letter, removable, filesystem). Inventory and risk analysis are
+still deferred.
 """
 
 from __future__ import annotations
@@ -22,14 +23,20 @@ from usb_monitor.models import (
     USBEvent,
 )
 from usb_monitor.monitoring import (
+    DeviceMetadata,
     EventNormalizer,
     EventSourceUnavailableError,
+    NullMetadataCollector,
     RawAction,
     RawDeviceEvent,
     WindowsEventSource,
+    WindowsMetadataCollector,
+    apply_metadata,
     create_event_source,
     create_monitor,
+    device_path_to_instance_id,
     format_live_event,
+    list_removable_drive_letters,
 )
 from usb_monitor.utils.logger import get_logger, setup_logging
 from usb_monitor.utils.permissions import (
@@ -113,6 +120,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Run sample raw-event coalescing without USB hardware.",
     )
+    parser.add_argument(
+        "--demo-metadata",
+        action="store_true",
+        help="Run sample metadata merge without USB hardware.",
+    )
+    parser.add_argument(
+        "--probe-metadata",
+        action="store_true",
+        help="Inspect currently mounted removable volumes (does not open USB files).",
+    )
     return parser.parse_args(argv)
 
 
@@ -133,6 +150,7 @@ def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
         f"  Live USB monitoring: {live}",
         f"  Event source: {source_label}",
         f"  USBMonitor: ready (coalesced CONNECT/DISCONNECT)",
+        f"  Metadata: {'windows_setupapi' if WindowsEventSource.is_available() else 'none'}",
         f"  PowerShell on PATH: {'Yes' if info.powershell_available else 'No'}",
         "",
         "Permissions",
@@ -335,6 +353,85 @@ def demo_normalize() -> int:
     return 0 if ok else 1
 
 
+def demo_metadata() -> int:
+    """Show metadata merge rules with in-memory data. No USB hardware."""
+    event = USBEvent(
+        event_type=EventType.CONNECT,
+        vendor_id="0781",
+        product_id="5581",
+        serial_number="DEMO1234",
+        drive_letter="E:",
+        source="demo",
+    )
+    filled = apply_metadata(
+        event,
+        DeviceMetadata(
+            manufacturer="SanDisk",
+            product_name="Ultra USB",
+            filesystem="FAT32",
+            removable=True,
+            capacity=15_728_640_000,
+            volume_label="BACKUP",
+            source="demo",
+        ),
+    )
+    print(format_live_event(filled))
+    print(f"volume_label (not manufacturer): {filled.details.get('volume_label')}")
+
+    guarded = USBEvent(
+        event_type=EventType.CONNECT,
+        vendor_id="0781",
+        manufacturer="SanDisk",
+        source="demo",
+    )
+    apply_metadata(guarded, DeviceMetadata(vendor_id="zzzz", manufacturer=None, source="demo"))
+    empty = USBEvent(event_type=EventType.CONNECT, source="demo")
+    apply_metadata(empty, DeviceMetadata(source="none"))
+    pnp = device_path_to_instance_id(
+        r"\\?\USB#VID_0781&PID_5581#DEMO1234#{a5dcbf10-6530-11d2-901f-00c04fb951ed}"
+    )
+    null_event = USBEvent(event_type=EventType.CONNECT, vendor_id="ABCD", source="demo")
+    NullMetadataCollector().collect(null_event)
+    apply_metadata(null_event, NullMetadataCollector().collect(null_event))
+
+    ok = (
+        filled.manufacturer == "SanDisk"
+        and filled.device_name == "Ultra USB"
+        and filled.filesystem == "FAT32"
+        and filled.removable is True
+        and guarded.vendor_id == "0781"
+        and guarded.manufacturer == "SanDisk"
+        and empty.manufacturer is None
+        and pnp == r"USB\VID_0781&PID_5581\DEMO1234"
+        and null_event.vendor_id == "ABCD"
+        and null_event.manufacturer is None
+    )
+    print()
+    print(f"PnP instance from path: {pnp}")
+    print("Did not overwrite known VID with invalid metadata: OK" if guarded.vendor_id == "0781" else "overwrite FAILED")
+    print("Empty collector invented nothing: OK" if empty.manufacturer is None else "invent FAILED")
+    print("Demo result: OK" if ok else "Demo result: FAILED")
+    return 0 if ok else 1
+
+
+def probe_metadata() -> int:
+    """Look up currently mounted removable volumes. Does not open files."""
+    letters = list_removable_drive_letters()
+    print("Currently mounted removable volumes:")
+    if not letters:
+        print("  (none)")
+        print("Plug authorized USB storage and re-run, or use --monitor to catch CONNECT.")
+        return 0
+    collector = WindowsMetadataCollector()
+    for letter in letters:
+        meta = collector.collect_drive(letter)
+        print(f"  {letter} manufacturer={meta.manufacturer or 'Unknown'} "
+              f"fs={meta.filesystem or 'Unknown'} "
+              f"removable={meta.removable}")
+        print(f"      {meta.to_dict()}")
+    return 0
+
+
 def run_monitor(timeout: float) -> int:
     """Listen for coalesced CONNECT/DISCONNECT events. Does not touch USB files."""
     if timeout < 0:
@@ -380,7 +477,7 @@ def main(argv: list[str] | None = None) -> int:
     logger = get_logger("main")
 
     logger.info("%s %s started", __app_name__, __version__)
-    logger.info("Phase 5: USBMonitor coalesces CONNECT/DISCONNECT; no inventory yet")
+    logger.info("Phase 6: device metadata collection; no inventory yet")
 
     info = detect_platform()
     perms = check_permissions()
@@ -401,6 +498,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.demo_normalize:
         return demo_normalize()
 
+    if args.demo_metadata:
+        return demo_metadata()
+
+    if args.probe_metadata:
+        return probe_metadata()
+
     if args.probe_source:
         return probe_event_source()
 
@@ -412,8 +515,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"{__app_name__} v{__version__}")
     print(f"Platform: {info.display_name}")
-    print("Phase 5 complete: USBMonitor emits coalesced CONNECT/DISCONNECT events.")
-    print("Run --demo-normalize (no USB) or --monitor --timeout 20 to watch live events.")
+    print("Phase 6 complete: CONNECT/DISCONNECT events can be enriched with OS metadata.")
+    print("Run --demo-metadata (no USB) or --probe-metadata / --monitor to inspect live devices.")
     return 0 if perms.can_persist else 1
 
 
