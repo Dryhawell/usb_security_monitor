@@ -158,6 +158,15 @@ class Device:
         """Serial suitable for logs and console output."""
         return mask_identifier(self.serial_number)
 
+    @property
+    def safe_device_id(self) -> str:
+        """Identity string with a masked serial, safe for logs and console."""
+        if self.serial_number and self.serial_number in self.device_id:
+            return self.device_id.replace(
+                self.serial_number, mask_identifier(self.serial_number), 1
+            )
+        return self.device_id
+
     def mark_seen(self, when: datetime | None = None) -> None:
         """Update first/last seen and increment the connection count."""
         timestamp = when or utc_now()

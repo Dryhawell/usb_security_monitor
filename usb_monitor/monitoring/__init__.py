@@ -5,6 +5,7 @@ turn those into CONNECT/DISCONNECT USBEvent records. MetadataCollector
 fills manufacturer, filesystem, and related OS-exposed fields.
 """
 
+from usb_monitor.inventory import DeviceInventory
 from usb_monitor.monitoring.event_source import (
     EventSource,
     EventSourceUnavailableError,
@@ -54,8 +55,12 @@ def create_metadata_collector() -> MetadataCollector:
 
 
 def create_monitor() -> USBMonitor:
-    """Build a USBMonitor over the native event source and metadata collector."""
-    return USBMonitor(create_event_source(), collector=create_metadata_collector())
+    """Build a USBMonitor over the native event source, metadata, and inventory."""
+    return USBMonitor(
+        create_event_source(),
+        collector=create_metadata_collector(),
+        inventory=DeviceInventory.load(),
+    )
 
 
 __all__ = [

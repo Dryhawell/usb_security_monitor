@@ -1,8 +1,7 @@
 """USB Security Monitor entry point.
 
-Phase 6 adds OS-exposed device metadata (VID/PID, manufacturer, serial,
-drive letter, removable, filesystem). Inventory and risk analysis are
-still deferred.
+Phase 7 adds a local device inventory (first seen / known / trusted).
+Risk analysis is still deferred.
 """
 
 from __future__ import annotations
@@ -10,9 +9,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tempfile
 import time
+from pathlib import Path
 
 from usb_monitor import __app_name__, __version__
+from usb_monitor.inventory import DeviceInventory, DeviceNotFoundError, format_device_row
 from usb_monitor.models import (
     Alert,
     Device,
@@ -130,6 +132,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Inspect currently mounted removable volumes (does not open USB files).",
     )
+    parser.add_argument(
+        "--demo-inventory",
+        action="store_true",
+        help="Run first-seen / known / trusted inventory scenarios without USB hardware.",
+    )
+    parser.add_argument(
+        "--devices",
+        action="store_true",
+        help="List locally observed devices from inventory.",
+    )
+    parser.add_argument(
+        "--trust",
+        metavar="DEVICE_ID",
+        help="Mark a known device as trusted (does not hide future events).",
+    )
+    parser.add_argument(
+        "--untrust",
+        metavar="DEVICE_ID",
+        help="Remove trusted status from a known device.",
+    )
     return parser.parse_args(argv)
 
 
@@ -140,6 +162,8 @@ def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
         source_label = "windows_wm_devicechange (idle)"
     else:
         source_label = "unavailable on this platform"
+    stats = DeviceInventory.load().stats()
+    inventory_line = f"{stats['total']} device(s), {stats['trusted']} trusted"
     lines = [
         f"{__app_name__} v{__version__}",
         "",
@@ -151,6 +175,7 @@ def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
         f"  Event source: {source_label}",
         f"  USBMonitor: ready (coalesced CONNECT/DISCONNECT)",
         f"  Metadata: {'windows_setupapi' if WindowsEventSource.is_available() else 'none'}",
+        f"  Inventory: {inventory_line}",
         f"  PowerShell on PATH: {'Yes' if info.powershell_available else 'No'}",
         "",
         "Permissions",
@@ -470,6 +495,111 @@ def run_monitor(timeout: float) -> int:
     return 0
 
 
+def _sample_connect(device_id: str, serial: str) -> USBEvent:
+    vid, pid, _rest = device_id.split(":", 2)
+    return USBEvent(
+        event_type=EventType.CONNECT,
+        device_id=device_id,
+        vendor_id=vid,
+        product_id=pid,
+        serial_number=serial,
+        manufacturer="SanDisk",
+        device_name="Ultra USB",
+        drive_letter="E:",
+        device_type=DeviceType.USB_STORAGE,
+        source="demo",
+    )
+
+
+def demo_inventory() -> int:
+    """First-seen vs known vs trusted, in memory only. No USB hardware."""
+    inventory = DeviceInventory(path=None)
+    first = _sample_connect("0781:5581:DEMO1234", "DEMO1234")
+    seen = inventory.observe(first)
+    second = _sample_connect("0781:5581:DEMO1234", "DEMO1234")
+    known = inventory.observe(second)
+    trusted_device = inventory.set_trusted("0781:5581:DEMO1234", True)
+    third = _sample_connect("0781:5581:DEMO1234", "DEMO1234")
+    trusted_reconnect = inventory.observe(third)
+    other = USBEvent(
+        event_type=EventType.CONNECT,
+        device_id="ABCD:0001:OTHER99",
+        vendor_id="ABCD",
+        product_id="0001",
+        serial_number="OTHER99",
+        source="demo",
+    )
+    other_seen = inventory.observe(other)
+
+    print("First connect:")
+    print(format_live_event(seen.derived_event) if seen and seen.derived_event else "missing")
+    print("Second connect (same identity):")
+    print(format_live_event(known.derived_event) if known and known.derived_event else "missing")
+    print(f"Trusted flag set: {trusted_device.trusted}")
+    print("Third connect after trust (CONNECT is not suppressed):")
+    if trusted_reconnect:
+        print(f"  first_seen={trusted_reconnect.is_first_seen} trusted={trusted_reconnect.device.trusted} connections={trusted_reconnect.device.connection_count}")
+        print(format_live_event(third))
+    print("Different identity:")
+    print(format_live_event(other_seen.derived_event) if other_seen and other_seen.derived_event else "missing")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "devices.json"
+        persisted = DeviceInventory(path)
+        persisted.observe(_sample_connect("0781:5581:DEMO1234", "DEMO1234"))
+        reloaded = DeviceInventory.load(path)
+        loaded = reloaded.get("0781:5581:DEMO1234")
+
+    ok = (
+        seen is not None
+        and seen.is_first_seen
+        and seen.derived_event is not None
+        and seen.derived_event.event_type is EventType.FIRST_SEEN
+        and known is not None
+        and not known.is_first_seen
+        and known.device.connection_count == 2
+        and trusted_reconnect is not None
+        and trusted_reconnect.device.trusted is True
+        and trusted_reconnect.device.connection_count == 3
+        and third.event_type is EventType.CONNECT
+        and other_seen is not None
+        and other_seen.is_first_seen
+        and loaded is not None
+        and loaded.connection_count == 1
+    )
+    print()
+    print(f"Persistence round-trip connections: {loaded.connection_count if loaded else 'missing'}")
+    print("Demo result: OK" if ok else "Demo result: FAILED")
+    return 0 if ok else 1
+
+
+def list_inventory() -> int:
+    inventory = DeviceInventory.load()
+    stats = inventory.stats()
+    print(f"Local inventory: {stats['total']} device(s), {stats['trusted']} trusted")
+    devices = inventory.list_devices()
+    if not devices:
+        print("(empty)")
+        return 0
+    for device in devices:
+        print(format_device_row(device))
+    return 0
+
+
+def change_trust(device_id: str, trusted: bool) -> int:
+    inventory = DeviceInventory.load()
+    try:
+        device = inventory.set_trusted(device_id, trusted)
+    except DeviceNotFoundError:
+        print(f"Device not in inventory: {device_id}")
+        print("Observe it with --monitor first, then trust/untrust.")
+        return 1
+    state = "trusted" if device.trusted else "untrusted"
+    print(f"{device.safe_device_id} is now {state}.")
+    print("Trusted status does not hide CONNECT/DISCONNECT events.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the current-phase application skeleton."""
     args = parse_args(argv)
@@ -477,7 +607,7 @@ def main(argv: list[str] | None = None) -> int:
     logger = get_logger("main")
 
     logger.info("%s %s started", __app_name__, __version__)
-    logger.info("Phase 6: device metadata collection; no inventory yet")
+    logger.info("Phase 7: local device inventory (first seen / known / trusted)")
 
     info = detect_platform()
     perms = check_permissions()
@@ -501,6 +631,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.demo_metadata:
         return demo_metadata()
 
+    if args.demo_inventory:
+        return demo_inventory()
+
+    if args.devices:
+        return list_inventory()
+
+    if args.trust:
+        return change_trust(args.trust, True)
+
+    if args.untrust:
+        return change_trust(args.untrust, False)
+
     if args.probe_metadata:
         return probe_metadata()
 
@@ -515,8 +657,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"{__app_name__} v{__version__}")
     print(f"Platform: {info.display_name}")
-    print("Phase 6 complete: CONNECT/DISCONNECT events can be enriched with OS metadata.")
-    print("Run --demo-metadata (no USB) or --probe-metadata / --monitor to inspect live devices.")
+    print("Phase 7 complete: local inventory tracks first-seen vs known devices.")
+    print("Run --demo-inventory (no USB), --devices, or --monitor to update the baseline.")
     return 0 if perms.can_persist else 1
 
 

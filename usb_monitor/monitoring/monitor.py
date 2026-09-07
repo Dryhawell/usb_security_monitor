@@ -10,6 +10,7 @@ from __future__ import annotations
 import time
 from collections import deque
 
+from usb_monitor.inventory import DeviceInventory
 from usb_monitor.models.event import USBEvent
 from usb_monitor.monitoring.event_source import EventSource
 from usb_monitor.monitoring.metadata import (
@@ -32,10 +33,12 @@ class USBMonitor:
         *,
         normalizer: EventNormalizer | None = None,
         collector: MetadataCollector | None = None,
+        inventory: DeviceInventory | None = None,
     ) -> None:
         self._source = source
         self._normalizer = normalizer or EventNormalizer(clock=time.monotonic)
         self._collector = collector or NullMetadataCollector()
+        self._inventory = inventory
         self._pending: deque[USBEvent] = deque()
         self._log = get_logger("monitoring.usb")
 
@@ -90,6 +93,14 @@ class USBMonitor:
             self._log.warning("Metadata collection failed; emitting event with known fields only")
             metadata = NullMetadataCollector().collect(event)
         apply_metadata(event, metadata)
+        if self._inventory is not None:
+            observation = self._inventory.observe(event)
+            if observation and observation.derived_event is not None:
+                self._pending.append(event)
+                self._log.info("%s", event)
+                self._pending.append(observation.derived_event)
+                self._log.info("%s", observation.derived_event)
+                return
         self._pending.append(event)
         self._log.info("%s", event)
 

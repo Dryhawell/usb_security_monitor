@@ -10,9 +10,8 @@ This project is intended for:
 - endpoint security fundamentals
 - Windows-focused USB event monitoring
 
-**Current status:** Phase 6 — device metadata collection (VID/PID, manufacturer,
-product, serial, drive, removable, filesystem). Inventory, risk analysis,
-and the full CLI are not implemented yet.
+**Current status:** Phase 7 — local device inventory (first seen, known,
+trusted). Risk analysis and the full CLI are not implemented yet.
 
 ## Overview
 
@@ -112,6 +111,10 @@ python main.py --probe-source
 python main.py --listen-source --timeout 20
 python main.py --demo-normalize
 python main.py --demo-metadata
+python main.py --demo-inventory
+python main.py --devices
+python main.py --trust DEVICE_ID
+python main.py --untrust DEVICE_ID
 python main.py --probe-metadata
 python main.py --monitor --timeout 20
 ```

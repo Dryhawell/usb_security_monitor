@@ -192,33 +192,75 @@ def burst_to_event(burst: _Burst) -> USBEvent:
 
 
 def format_live_event(event: USBEvent) -> str:
-    """Human-readable CONNECT/DISCONNECT block for live monitor output."""
-    verb = "USB CONNECTED" if event.event_type is EventType.CONNECT else "USB DISCONNECTED"
+    """Human-readable CONNECT/DISCONNECT/inventory block for live monitor output."""
+    titles = {
+        EventType.CONNECT: "USB CONNECTED",
+        EventType.DISCONNECT: "USB DISCONNECTED",
+        EventType.FIRST_SEEN: "NEW USB DEVICE DETECTED",
+        EventType.KNOWN_DEVICE: "KNOWN USB DEVICE",
+    }
+    verb = titles.get(event.event_type, event.event_type.value)
     serial = mask_identifier(event.serial_number) if event.serial_number else "Unknown"
     kinds = event.details.get("kinds") if isinstance(event.details, dict) else None
     signals = ", ".join(kinds) if isinstance(kinds, list) and kinds else "unknown"
     removable = _format_optional_bool(event.removable)
-    return "\n".join(
-        [
-            f"[{event.display_timestamp}] {verb}",
-            "",
-            "Device:",
-            f"  Manufacturer: {event.manufacturer or 'Unknown'}",
-            f"  Product: {event.device_name or 'Unknown'}",
-            f"  Identity: {event.safe_device_id}",
-            f"  VID: {event.vendor_id or 'Unknown'}",
-            f"  PID: {event.product_id or 'Unknown'}",
-            f"  Serial: {serial}",
-            f"  Drive: {event.drive_letter or 'Unknown'}",
-            f"  Removable: {removable}",
-            f"  Filesystem: {event.filesystem or 'Unknown'}",
-            f"  Capacity: {_format_capacity(event.capacity)}",
-            f"  Type: {event.device_type.value}",
-            f"  Signals: {signals}",
-            "",
-            "--------------------------------",
-        ]
-    )
+    inventory = event.details.get("inventory") if isinstance(event.details, dict) else None
+    status_lines = _format_inventory_status(event, inventory if isinstance(inventory, dict) else None)
+    lines = [
+        f"[{event.display_timestamp}] {verb}",
+        "",
+        "Device:",
+        f"  Manufacturer: {event.manufacturer or 'Unknown'}",
+        f"  Product: {event.device_name or 'Unknown'}",
+        f"  Identity: {event.safe_device_id}",
+        f"  VID: {event.vendor_id or 'Unknown'}",
+        f"  PID: {event.product_id or 'Unknown'}",
+        f"  Serial: {serial}",
+        f"  Drive: {event.drive_letter or 'Unknown'}",
+        f"  Removable: {removable}",
+        f"  Filesystem: {event.filesystem or 'Unknown'}",
+        f"  Capacity: {_format_capacity(event.capacity)}",
+        f"  Type: {event.device_type.value}",
+        f"  Signals: {signals}",
+        "",
+        "Status:",
+        *status_lines,
+    ]
+    if event.event_type is EventType.FIRST_SEEN:
+        lines.extend(
+            [
+                "",
+                "Note:",
+                "  Verify that this device belongs to an authorized user.",
+                "  Trusted does not mean the device is safe.",
+            ]
+        )
+    lines.extend(["", "--------------------------------"])
+    return "\n".join(lines)
+
+
+def _format_inventory_status(event: USBEvent, inventory: dict | None) -> list[str]:
+    if event.event_type is EventType.FIRST_SEEN:
+        baseline = "First seen"
+    elif event.event_type is EventType.KNOWN_DEVICE:
+        baseline = "Known device"
+    elif inventory and inventory.get("is_first_seen"):
+        baseline = "First seen"
+    elif inventory:
+        baseline = "Known device"
+    else:
+        baseline = "Not in inventory"
+    trusted = "Unknown"
+    connections = "Unknown"
+    if inventory is not None:
+        trusted = "Yes" if inventory.get("trusted") else "No"
+        count = inventory.get("connection_count")
+        connections = str(count) if count is not None else "Unknown"
+    return [
+        f"  {baseline}",
+        f"  Trusted: {trusted}",
+        f"  Connections: {connections}",
+    ]
 
 
 def _format_optional_bool(value: bool | None) -> str:
