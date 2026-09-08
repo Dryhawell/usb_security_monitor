@@ -3,7 +3,8 @@
 Detection stays in the event source. Normalization produces USBEvent
 records. Metadata collection fills OS-exposed properties. Inventory
 tracks first-seen vs known. The analyzer attaches an explainable
-heuristic score and session-window anomaly counts. It does not decide
+heuristic score and session-window anomaly counts. AlertManager turns
+those findings into de-duplicated session alerts. None of this decides
 that a device is malicious.
 """
 
@@ -12,6 +13,7 @@ from __future__ import annotations
 import time
 from collections import deque
 
+from usb_monitor.alerts import AlertManager, attach_decision
 from usb_monitor.analysis import Analyzer, apply_assessment, should_emit_suspicious
 from usb_monitor.inventory import DeviceInventory
 from usb_monitor.models.enums import EventType
@@ -39,14 +41,20 @@ class USBMonitor:
         collector: MetadataCollector | None = None,
         inventory: DeviceInventory | None = None,
         analyzer: Analyzer | None = None,
+        alerts: AlertManager | None = None,
     ) -> None:
         self._source = source
         self._normalizer = normalizer or EventNormalizer(clock=time.monotonic)
         self._collector = collector or NullMetadataCollector()
         self._inventory = inventory
         self._analyzer = analyzer or Analyzer()
+        self._alerts = alerts if alerts is not None else AlertManager()
         self._pending: deque[USBEvent] = deque()
         self._log = get_logger("monitoring.usb")
+
+    @property
+    def alerts(self) -> AlertManager:
+        return self._alerts
 
     @property
     def is_running(self) -> bool:
@@ -117,6 +125,12 @@ class USBMonitor:
                 )
             if observation is not None and observation.derived_event is not None:
                 apply_assessment(observation.derived_event, assessment)
+            decision = self._alerts.consider(event, assessment)
+            attach_decision(event, decision)
+            if observation is not None and observation.derived_event is not None:
+                attach_decision(observation.derived_event, decision)
+            if decision.alert is not None:
+                self._log.info("%s", decision.alert)
         self._pending.append(event)
         self._log.info("%s", event)
         if observation is not None and observation.derived_event is not None:

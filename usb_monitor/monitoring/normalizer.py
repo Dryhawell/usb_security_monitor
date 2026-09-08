@@ -246,6 +246,25 @@ def format_live_event(event: USBEvent) -> str:
                 "  This is not a malware confirmation.",
             ]
         )
+    alert = event.details.get("alert") if isinstance(event.details, dict) else None
+    if isinstance(alert, dict) and alert.get("title"):
+        lines.extend(
+            [
+                "",
+                "Alert:",
+                f"  [{alert.get('severity')}] {alert.get('title')}",
+                "  Heuristic finding; not a malware confirmation.",
+            ]
+        )
+    suppressed = event.details.get("alert_suppressed") if isinstance(event.details, dict) else None
+    if isinstance(suppressed, dict):
+        lines.extend(
+            [
+                "",
+                "Alert:",
+                "  Suppressed (cooldown; same warning already emitted).",
+            ]
+        )
     lines.extend(["", "--------------------------------"])
     return "\n".join(lines)
 

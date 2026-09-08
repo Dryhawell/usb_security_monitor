@@ -4,6 +4,7 @@ EventSource detects OS notifications. USBMonitor + EventNormalizer
 turn those into CONNECT/DISCONNECT USBEvent records. MetadataCollector
 fills manufacturer, filesystem, and related OS-exposed fields.
 Inventory and the analyzer attach first-seen state and a heuristic score.
+AlertManager adds session alerts with cooldown.
 """
 
 from usb_monitor.inventory import DeviceInventory

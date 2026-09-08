@@ -1,8 +1,7 @@
 """USB Security Monitor entry point.
 
-Phase 9 adds sliding-window anomaly detection (rapid reconnect,
-repeated events, multiple new devices). Scores remain a heuristic,
-not a malware verdict.
+Phase 10 adds an in-memory AlertManager with fingerprint deduplication
+and cooldown. Alerts are a heuristic convenience, not a malware verdict.
 """
 
 from __future__ import annotations
@@ -16,7 +15,10 @@ from datetime import timedelta
 from pathlib import Path
 
 from usb_monitor import __app_name__, __version__
+from usb_monitor.alerts import AlertManager, format_alert
 from usb_monitor.analysis import Analyzer
+from usb_monitor.analysis.risk_engine import RiskAssessment
+from usb_monitor.analysis.rules import RULE_IDENTITY_CHANGE, RuleMatch
 from usb_monitor.inventory import DeviceInventory, DeviceNotFoundError, format_device_row
 from usb_monitor.models import (
     Alert,
@@ -154,6 +156,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Run reconnect/new-device window scenarios without USB hardware.",
     )
     parser.add_argument(
+        "--demo-alerts",
+        action="store_true",
+        help="Run alert generation, dedup, and cooldown scenarios without USB hardware.",
+    )
+    parser.add_argument(
         "--devices",
         action="store_true",
         help="List locally observed devices from inventory.",
@@ -194,6 +201,7 @@ def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
         f"  Inventory: {inventory_line}",
         f"  Risk analyzer: rule-based heuristic (not a malware verdict)",
         f"  Anomaly windows: rapid reconnect / repeated events / multiple new devices",
+        f"  Alert manager: in-memory, 60s cooldown (not a malware verdict)",
         f"  PowerShell on PATH: {'Yes' if info.powershell_available else 'No'}",
         "",
         "Permissions",
@@ -510,6 +518,8 @@ def run_monitor(timeout: float) -> int:
             print(format_live_event(event))
             print()
     print(f"Logical USB events observed: {seen}")
+    stats = monitor.alerts.stats()
+    print(f"Alerts emitted: {stats.emitted}, suppressed: {stats.suppressed} (cooldown {stats.cooldown_seconds:.0f}s)")
     return 0
 
 
@@ -918,6 +928,104 @@ def demo_anomaly() -> int:
     return 0 if ok else 1
 
 
+def demo_alerts() -> int:
+    """Generation, cooldown, burst suppression, and escalation. No USB hardware."""
+    origin = utc_now()
+    print("Scenario A — first-seen complete stick raises an INFO alert:")
+    monitor = _new_monitor()
+    first_events = _feed_connect(
+        monitor, _timed_storage("0781:5581:DEMO1234", "DEMO1234", origin)
+    )
+    first_connect = next((item for item in first_events if item.event_type is EventType.CONNECT), None)
+    if first_connect is not None:
+        print(format_live_event(first_connect))
+        print()
+    first_alerts = monitor.alerts.list_alerts()
+    if first_alerts:
+        print(format_alert(first_alerts[-1]))
+        print()
+
+    print("Scenario B — immediate known reconnect does not raise first-seen again:")
+    known_events = _feed_connect(
+        monitor, _timed_storage("0781:5581:DEMO1234", "DEMO1234", origin + timedelta(seconds=2))
+    )
+    known_connect = next((item for item in known_events if item.event_type is EventType.CONNECT), None)
+    if known_connect is not None:
+        print(format_live_event(known_connect))
+        print()
+
+    print("Scenario C — 100 identical HIGH warnings in one second -> 1 emit, 99 suppressed:")
+    burst_manager = AlertManager(cooldown_seconds=60)
+    burst_event = _timed_storage("0781:5581:BURST99", "BURST99", origin)
+    high = RiskAssessment(
+        score=62,
+        level=RiskLevel.HIGH,
+        matches=(RuleMatch(RULE_IDENTITY_CHANGE, "Simulated identity change for cooldown demo."),),
+    )
+    burst_emitted = 0
+    burst_suppressed = 0
+    for _ in range(100):
+        decision = burst_manager.consider(burst_event, high)
+        if decision.alert is not None:
+            burst_emitted += 1
+        elif decision.suppressed:
+            burst_suppressed += 1
+    print(f"  emitted={burst_emitted} suppressed={burst_suppressed}")
+    print()
+
+    print("Scenario D — HIGH then CRITICAL on the same fingerprint escalates inside cooldown:")
+    escalate = AlertManager(cooldown_seconds=60)
+    same = _timed_storage("0781:5581:ESC001", "ESC001", origin)
+    first = escalate.consider(same, high)
+    critical = RiskAssessment(
+        score=80,
+        level=RiskLevel.CRITICAL,
+        matches=(RuleMatch(RULE_IDENTITY_CHANGE, "Simulated stacked CRITICAL heuristic."),),
+    )
+    second = escalate.consider(same, critical)
+    third = escalate.consider(same, critical)
+    if first.alert is not None:
+        print(format_alert(first.alert))
+        print()
+    if second.alert is not None:
+        print(format_alert(second.alert))
+        print()
+    print(f"  third suppressed={third.suppressed}")
+    print()
+
+    print("Scenario E — same HIGH after cooldown window expires emits again:")
+    later = _timed_storage("0781:5581:BURST99", "BURST99", origin + timedelta(seconds=61))
+    after = burst_manager.consider(later, high)
+    print(f"  emitted_after_cooldown={after.alert is not None}")
+    print()
+
+    stats_a = monitor.alerts.stats()
+    ok = (
+        first_connect is not None
+        and isinstance(first_connect.details.get("alert"), dict)
+        and first_alerts
+        and first_alerts[0].severity is Severity.INFO
+        and known_connect is not None
+        and known_connect.details.get("alert") is None
+        and stats_a.emitted == 1
+        and burst_emitted == 1
+        and burst_suppressed == 99
+        and first.alert is not None
+        and first.alert.severity is Severity.HIGH
+        and second.alert is not None
+        and second.alert.severity is Severity.CRITICAL
+        and third.suppressed is True
+        and after.alert is not None
+    )
+    print("First-seen produced one INFO alert: OK" if first_alerts else "first-seen alert FAILED")
+    print("Known reconnect did not duplicate first-seen: OK")
+    print("100 identical warnings collapsed to 1: OK" if burst_emitted == 1 and burst_suppressed == 99 else "burst FAILED")
+    print("Severity escalation bypassed cooldown: OK" if second.alert is not None else "escalation FAILED")
+    print("Cooldown expiry allowed a new alert: OK" if after.alert is not None else "expiry FAILED")
+    print("Demo result: OK" if ok else "Demo result: FAILED")
+    return 0 if ok else 1
+
+
 def list_inventory() -> int:
     inventory = DeviceInventory.load()
     stats = inventory.stats()
@@ -952,7 +1060,7 @@ def main(argv: list[str] | None = None) -> int:
     logger = get_logger("main")
 
     logger.info("%s %s started", __app_name__, __version__)
-    logger.info("Phase 9: sliding-window anomaly detection")
+    logger.info("Phase 10: in-memory alerts with dedup and cooldown")
 
     info = detect_platform()
     perms = check_permissions()
@@ -985,6 +1093,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.demo_anomaly:
         return demo_anomaly()
 
+    if args.demo_alerts:
+        return demo_alerts()
+
     if args.devices:
         return list_inventory()
 
@@ -1008,8 +1119,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"{__app_name__} v{__version__}")
     print(f"Platform: {info.display_name}")
-    print("Phase 9 complete: CONNECT scoring includes reconnect and first-seen windows.")
-    print("Run --demo-anomaly (no USB) or --monitor to see RAPID_RECONNECT / MULTIPLE_NEW_DEVICES.")
+    print("Phase 10 complete: CONNECT findings can raise de-duplicated session alerts.")
+    print("Run --demo-alerts (no USB) or --monitor to see cooldown/dedup behaviour.")
     return 0 if perms.can_persist else 1
 
 

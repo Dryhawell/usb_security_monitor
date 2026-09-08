@@ -10,9 +10,9 @@ This project is intended for:
 - endpoint security fundamentals
 - Windows-focused USB event monitoring
 
-**Current status:** Phase 9 — sliding-window anomaly detection
-(rapid reconnect, repeated events, multiple new devices).
-Alerts, reports, and the full CLI are not implemented yet.
+**Current status:** Phase 10 — in-memory alerts with deduplication
+and cooldown. JSON event/alert storage and the full CLI are not
+implemented yet.
 
 ## Overview
 
@@ -42,11 +42,11 @@ Implemented:
 - First-seen vs known-device detection
 - Explainable rule-based risk scoring (heuristic, not a malware verdict)
 - Sliding-window anomaly signals (rapid reconnect, event flaps, new-device bursts)
+- Local session alerts with fingerprint deduplication and cooldown
 
 Planned:
 
-- Local alerts with deduplication
-- JSON event/inventory storage
+- JSON event/alert/inventory storage
 - CLI reports (human-readable, JSON, CSV)
 - Unit tests with a mocked event source
 
@@ -121,6 +121,7 @@ python main.py --demo-metadata
 python main.py --demo-inventory
 python main.py --demo-risk
 python main.py --demo-anomaly
+python main.py --demo-alerts
 python main.py --devices
 python main.py --trust DEVICE_ID
 python main.py --untrust DEVICE_ID
