@@ -1,8 +1,8 @@
 """Shared enumerations for USB Security Monitor models.
 
 Risk levels are an internal heuristic scale, not a standardized
-cybersecurity score. Elevated values must be justified by rules in
-later phases; the mapping here only converts a 0-100 score to a band.
+cybersecurity score. Elevated values must be justified by triggered
+rules; the mapping here only converts a 0-100 score to a band.
 """
 
 from __future__ import annotations

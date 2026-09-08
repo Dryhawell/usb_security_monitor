@@ -10,8 +10,8 @@ This project is intended for:
 - endpoint security fundamentals
 - Windows-focused USB event monitoring
 
-**Current status:** Phase 7 — local device inventory (first seen, known,
-trusted). Risk analysis and the full CLI are not implemented yet.
+**Current status:** Phase 8 — explainable rule-based risk scoring.
+Alerts, reports, and the full CLI are not implemented yet.
 
 ## Overview
 
@@ -31,13 +31,18 @@ when they appeared, and whether they were seen before. This project teaches
 that visibility layer — inventory, first-seen detection, and simple
 anomaly signals — without crossing into offensive USB techniques.
 
-## Features (planned)
+## Features (current vs planned)
+
+Implemented:
 
 - Detect USB/removable storage connect and disconnect events
 - Collect available device metadata (VID/PID, product, drive letter, …)
 - Maintain a local device inventory (first seen / last seen / count)
 - First-seen vs known-device detection
-- Explainable rule-based risk scoring
+- Explainable rule-based risk scoring (heuristic, not a malware verdict)
+
+Planned:
+
 - Local alerts with deduplication
 - JSON event/inventory storage
 - CLI reports (human-readable, JSON, CSV)
@@ -112,6 +117,7 @@ python main.py --listen-source --timeout 20
 python main.py --demo-normalize
 python main.py --demo-metadata
 python main.py --demo-inventory
+python main.py --demo-risk
 python main.py --devices
 python main.py --trust DEVICE_ID
 python main.py --untrust DEVICE_ID

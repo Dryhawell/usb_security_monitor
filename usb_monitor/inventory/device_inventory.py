@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from usb_monitor.models.device import Device, compose_device_id, normalize_optional_text
-from usb_monitor.models.enums import DeviceType, EventType, InterfaceType
+from usb_monitor.models.enums import DeviceType, EventType, InterfaceType, RiskLevel, clamp_risk_score
 from usb_monitor.models.event import USBEvent
 from usb_monitor.utils.logger import get_logger
 from usb_monitor.utils.permissions import DEFAULT_DATA_DIR
@@ -38,6 +38,7 @@ class Observation:
     device: Device
     is_first_seen: bool
     derived_event: USBEvent | None
+    previous: Device | None = None
 
 
 class DeviceInventory:
@@ -133,6 +134,7 @@ class DeviceInventory:
             if is_first_seen:
                 device = Device(device_id=identity)
             assert device is not None
+            previous = None if is_first_seen else _clone_device(device)
             _merge_event_into_device(device, event)
             self._rekey_locked(device, identity)
             if event.event_type is EventType.CONNECT:
@@ -151,7 +153,12 @@ class DeviceInventory:
         _annotate_event(event, snapshot, is_first_seen)
         if derived is not None:
             _annotate_event(derived, snapshot, is_first_seen)
-        return Observation(device=snapshot, is_first_seen=is_first_seen, derived_event=derived)
+        return Observation(
+            device=snapshot,
+            is_first_seen=is_first_seen,
+            derived_event=derived,
+            previous=previous,
+        )
 
     def get(self, device_id: str) -> Device | None:
         with self._lock:
@@ -174,6 +181,16 @@ class DeviceInventory:
             snapshot = _clone_device(device)
         self.save()
         return snapshot
+
+    def update_risk(self, device_id: str, score: int, level: RiskLevel) -> None:
+        """Store the latest heuristic score on the inventory record."""
+        with self._lock:
+            device = self._devices.get(device_id)
+            if device is None:
+                return
+            device.risk_score = clamp_risk_score(score)
+            device.risk_level = level
+        self.save()
 
     def stats(self) -> dict[str, int]:
         devices = self.list_devices()
@@ -212,9 +229,14 @@ def format_device_row(device: Device) -> str:
     """One-line inventory listing with a masked serial."""
     seen = format_display(device.last_seen) if device.last_seen else "n/a"
     trusted = "yes" if device.trusted else "no"
+    if device.risk_level is not None and device.risk_score is not None:
+        risk = f"  risk={device.risk_level.value}({device.risk_score})"
+    else:
+        risk = ""
     return (
         f"{device.safe_device_id}  {device.display_name}  "
-        f"connections={device.connection_count}  trusted={trusted}  last_seen={seen}"
+        f"connections={device.connection_count}  trusted={trusted}  "
+        f"last_seen={seen}{risk}"
     )
 
 

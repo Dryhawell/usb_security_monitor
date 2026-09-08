@@ -2,7 +2,8 @@
 
 Detection stays in the event source. Normalization produces USBEvent
 records. Metadata collection fills OS-exposed properties. Inventory
-and risk analysis are later phases.
+tracks first-seen vs known. The analyzer attaches an explainable
+heuristic score; it does not decide that a device is malicious.
 """
 
 from __future__ import annotations
@@ -10,7 +11,9 @@ from __future__ import annotations
 import time
 from collections import deque
 
+from usb_monitor.analysis import Analyzer, apply_assessment, should_emit_suspicious
 from usb_monitor.inventory import DeviceInventory
+from usb_monitor.models.enums import EventType
 from usb_monitor.models.event import USBEvent
 from usb_monitor.monitoring.event_source import EventSource
 from usb_monitor.monitoring.metadata import (
@@ -34,11 +37,13 @@ class USBMonitor:
         normalizer: EventNormalizer | None = None,
         collector: MetadataCollector | None = None,
         inventory: DeviceInventory | None = None,
+        analyzer: Analyzer | None = None,
     ) -> None:
         self._source = source
         self._normalizer = normalizer or EventNormalizer(clock=time.monotonic)
         self._collector = collector or NullMetadataCollector()
         self._inventory = inventory
+        self._analyzer = analyzer or Analyzer()
         self._pending: deque[USBEvent] = deque()
         self._log = get_logger("monitoring.usb")
 
@@ -93,16 +98,29 @@ class USBMonitor:
             self._log.warning("Metadata collection failed; emitting event with known fields only")
             metadata = NullMetadataCollector().collect(event)
         apply_metadata(event, metadata)
-        if self._inventory is not None:
-            observation = self._inventory.observe(event)
-            if observation and observation.derived_event is not None:
-                self._pending.append(event)
-                self._log.info("%s", event)
-                self._pending.append(observation.derived_event)
-                self._log.info("%s", observation.derived_event)
-                return
+        observation = self._inventory.observe(event) if self._inventory is not None else None
+        assessment = None
+        if event.event_type is EventType.CONNECT:
+            assessment = self._analyzer.analyze(event, observation)
+            if assessment is not None:
+                apply_assessment(event, assessment)
+                if self._inventory is not None and observation is not None:
+                    self._inventory.update_risk(
+                        observation.device.device_id,
+                        assessment.score,
+                        assessment.level,
+                    )
+                if observation is not None and observation.derived_event is not None:
+                    apply_assessment(observation.derived_event, assessment)
         self._pending.append(event)
         self._log.info("%s", event)
+        if observation is not None and observation.derived_event is not None:
+            self._pending.append(observation.derived_event)
+            self._log.info("%s", observation.derived_event)
+        if assessment is not None and should_emit_suspicious(assessment):
+            suspicious = _suspicious_from(event)
+            self._pending.append(suspicious)
+            self._log.info("%s", suspicious)
 
     def _wait_for_event(self, timeout: float | None) -> USBEvent | None:
         deadline = None if timeout is None else time.monotonic() + timeout
@@ -129,3 +147,31 @@ class USBMonitor:
             produced = self._normalizer.ingest(raw)
             for event in produced:
                 self._queue_event(event)
+
+
+def _suspicious_from(event: USBEvent) -> USBEvent:
+    """Copy a CONNECT into SUSPICIOUS_DEVICE when the heuristic is HIGH/CRITICAL."""
+    return USBEvent(
+        event_type=EventType.SUSPICIOUS_DEVICE,
+        timestamp=event.timestamp,
+        device_id=event.device_id,
+        device_name=event.device_name,
+        vendor_id=event.vendor_id,
+        product_id=event.product_id,
+        serial_number=event.serial_number,
+        drive_letter=event.drive_letter,
+        device_type=event.device_type,
+        manufacturer=event.manufacturer,
+        pnp_device_id=event.pnp_device_id,
+        removable=event.removable,
+        filesystem=event.filesystem,
+        capacity=event.capacity,
+        source=event.source,
+        risk_score=event.risk_score,
+        risk_level=event.risk_level,
+        details={
+            **dict(event.details),
+            "from_event_id": event.event_id,
+            "note": "Heuristic HIGH/CRITICAL characteristics; not a malware confirmation.",
+        },
+    )

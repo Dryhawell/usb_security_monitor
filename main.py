@@ -1,7 +1,7 @@
 """USB Security Monitor entry point.
 
-Phase 7 adds a local device inventory (first seen / known / trusted).
-Risk analysis is still deferred.
+Phase 8 adds explainable rule-based risk scoring on CONNECT events.
+The score is a local heuristic, not a malware verdict.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 
 from usb_monitor import __app_name__, __version__
+from usb_monitor.analysis import Analyzer
 from usb_monitor.inventory import DeviceInventory, DeviceNotFoundError, format_device_row
 from usb_monitor.models import (
     Alert,
@@ -21,16 +22,19 @@ from usb_monitor.models import (
     DeviceType,
     EventType,
     InterfaceType,
+    RiskLevel,
     Severity,
     USBEvent,
 )
 from usb_monitor.monitoring import (
     DeviceMetadata,
     EventNormalizer,
+    EventSource,
     EventSourceUnavailableError,
     NullMetadataCollector,
     RawAction,
     RawDeviceEvent,
+    USBMonitor,
     WindowsEventSource,
     WindowsMetadataCollector,
     apply_metadata,
@@ -138,6 +142,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Run first-seen / known / trusted inventory scenarios without USB hardware.",
     )
     parser.add_argument(
+        "--demo-risk",
+        action="store_true",
+        help="Run rule-based risk scoring scenarios without USB hardware.",
+    )
+    parser.add_argument(
         "--devices",
         action="store_true",
         help="List locally observed devices from inventory.",
@@ -176,6 +185,7 @@ def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
         f"  USBMonitor: ready (coalesced CONNECT/DISCONNECT)",
         f"  Metadata: {'windows_setupapi' if WindowsEventSource.is_available() else 'none'}",
         f"  Inventory: {inventory_line}",
+        f"  Risk analyzer: rule-based heuristic (not a malware verdict)",
         f"  PowerShell on PATH: {'Yes' if info.powershell_available else 'No'}",
         "",
         "Permissions",
@@ -573,6 +583,186 @@ def demo_inventory() -> int:
     return 0 if ok else 1
 
 
+class _IdleEventSource(EventSource):
+    """Event source that never yields OS notifications. Used by --demo-risk."""
+
+    def __init__(self) -> None:
+        self._running = False
+
+    @property
+    def mechanism(self) -> str:
+        return "demo"
+
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    def start(self) -> None:
+        self._running = True
+
+    def stop(self, timeout: float = 5.0) -> None:
+        self._running = False
+
+    def poll(self, timeout: float | None = None) -> RawDeviceEvent | None:
+        return None
+
+
+def _feed_connect(monitor: USBMonitor, event: USBEvent) -> list[USBEvent]:
+    monitor._queue_event(event)
+    return monitor.drain()
+
+
+def _risk_ids(event: USBEvent) -> list[str]:
+    payload = event.details.get("risk") if isinstance(event.details, dict) else None
+    if not isinstance(payload, dict):
+        return []
+    return [
+        str(item.get("rule_id"))
+        for item in payload.get("matches") or []
+        if isinstance(item, dict) and item.get("rule_id")
+    ]
+
+
+def demo_risk() -> int:
+    """Show heuristic scoring: first-seen stays MEDIUM; stacked signals can reach HIGH."""
+    analyzer = Analyzer()
+    preview = DeviceInventory(path=None)
+    incomplete = USBEvent(
+        event_type=EventType.CONNECT,
+        device_id="volume:E:",
+        drive_letter="E:",
+        device_type=DeviceType.REMOVABLE_MEDIA,
+        source="demo",
+    )
+    incomplete_assessment = analyzer.analyze(incomplete, preview.observe(incomplete))
+    print("First-seen incomplete volume (missing manufacturer/serial, letter-only identity):")
+    print(f"  score={incomplete_assessment.score if incomplete_assessment else 'n/a'} "
+          f"level={incomplete_assessment.level.value if incomplete_assessment else 'n/a'}")
+    print(f"  rules={list(incomplete_assessment.reasons) if incomplete_assessment else []}")
+
+    inventory = DeviceInventory(path=None)
+    monitor = USBMonitor(
+        _IdleEventSource(),
+        collector=NullMetadataCollector(),
+        inventory=inventory,
+        analyzer=analyzer,
+    )
+
+    print()
+    print("Scenario A — first connect of a complete known-looking stick:")
+    first = USBEvent(
+        event_type=EventType.CONNECT,
+        device_id="0781:5581:DEMO1234",
+        vendor_id="0781",
+        product_id="5581",
+        serial_number="DEMO1234",
+        manufacturer="SanDisk",
+        device_name="Ultra USB",
+        device_type=DeviceType.USB_STORAGE,
+        removable=False,
+        source="demo",
+    )
+    first_events = _feed_connect(monitor, first)
+    for item in first_events:
+        print(format_live_event(item))
+        print()
+
+    print("Scenario B — trusted reconnect of the same identity (CONNECT is not hidden):")
+    inventory.set_trusted("0781:5581:DEMO1234", True)
+    trusted = USBEvent(
+        event_type=EventType.CONNECT,
+        device_id="0781:5581:DEMO1234",
+        vendor_id="0781",
+        product_id="5581",
+        serial_number="DEMO1234",
+        manufacturer="SanDisk",
+        device_name="Ultra USB",
+        device_type=DeviceType.USB_STORAGE,
+        removable=False,
+        source="demo",
+    )
+    trusted_events = _feed_connect(monitor, trusted)
+    for item in trusted_events:
+        print(format_live_event(item))
+        print()
+
+    stacked_inventory = DeviceInventory(path=None)
+    stacked_monitor = USBMonitor(
+        _IdleEventSource(),
+        collector=NullMetadataCollector(),
+        inventory=stacked_inventory,
+        analyzer=analyzer,
+    )
+    baseline = USBEvent(
+        event_type=EventType.CONNECT,
+        device_id="0781:5581:DEMO1234",
+        vendor_id="0781",
+        product_id="5581",
+        serial_number="DEMO1234",
+        manufacturer="SanDisk",
+        device_name="Ultra USB",
+        device_type=DeviceType.USB_STORAGE,
+        removable=False,
+        source="demo",
+    )
+    _feed_connect(stacked_monitor, baseline)
+    print("Scenario C — same identity, changed manufacturer + generic name + type/removable mismatch:")
+    changed = USBEvent(
+        event_type=EventType.CONNECT,
+        device_id="0781:5581:DEMO1234",
+        vendor_id="0781",
+        product_id="5581",
+        serial_number="DEMO1234",
+        manufacturer="Generic USB Storage",
+        device_name="USB Device",
+        drive_letter="E:",
+        device_type=DeviceType.USB_DEVICE,
+        removable=True,
+        source="demo",
+    )
+    changed_events = _feed_connect(stacked_monitor, changed)
+    for item in changed_events:
+        print(format_live_event(item))
+        print()
+
+    first_connect = next((item for item in first_events if item.event_type is EventType.CONNECT), None)
+    trusted_connect = next((item for item in trusted_events if item.event_type is EventType.CONNECT), None)
+    changed_connect = next((item for item in changed_events if item.event_type is EventType.CONNECT), None)
+    first_seen = next((item for item in first_events if item.event_type is EventType.FIRST_SEEN), None)
+    suspicious = [item for item in changed_events if item.event_type is EventType.SUSPICIOUS_DEVICE]
+
+    first_ids = _risk_ids(first_connect) if first_connect else []
+    trusted_ids = _risk_ids(trusted_connect) if trusted_connect else []
+    changed_ids = _risk_ids(changed_connect) if changed_connect else []
+
+    ok = (
+        incomplete_assessment is not None
+        and incomplete_assessment.level is RiskLevel.MEDIUM
+        and incomplete_assessment.score < 51
+        and first_connect is not None
+        and first_connect.risk_level is RiskLevel.LOW
+        and "FIRST_SEEN_DEVICE" in first_ids
+        and first_seen is not None
+        and first_seen.risk_score == first_connect.risk_score
+        and trusted_connect is not None
+        and "TRUSTED_DEVICE" in trusted_ids
+        and trusted_connect.event_type is EventType.CONNECT
+        and changed_connect is not None
+        and changed_connect.risk_level is RiskLevel.HIGH
+        and "IDENTITY_INCONSISTENCY" in changed_ids
+        and "GENERIC_OR_SUSPICIOUS_NAME" in changed_ids
+        and len(suspicious) == 1
+        and suspicious[0].risk_level is RiskLevel.HIGH
+        and not any(item.event_type is EventType.SUSPICIOUS_DEVICE for item in first_events)
+        and not any(item.event_type is EventType.SUSPICIOUS_DEVICE for item in trusted_events)
+    )
+    print("First-seen / missing-serial alone did not assign CRITICAL: OK")
+    print("Trusted flag did not suppress CONNECT: OK")
+    print("HIGH stacked characteristics emitted SUSPICIOUS_DEVICE: OK" if suspicious else "HIGH stacked FAILED")
+    print("Demo result: OK" if ok else "Demo result: FAILED")
+    return 0 if ok else 1
+
+
 def list_inventory() -> int:
     inventory = DeviceInventory.load()
     stats = inventory.stats()
@@ -607,7 +797,7 @@ def main(argv: list[str] | None = None) -> int:
     logger = get_logger("main")
 
     logger.info("%s %s started", __app_name__, __version__)
-    logger.info("Phase 7: local device inventory (first seen / known / trusted)")
+    logger.info("Phase 8: explainable rule-based risk scoring")
 
     info = detect_platform()
     perms = check_permissions()
@@ -634,6 +824,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.demo_inventory:
         return demo_inventory()
 
+    if args.demo_risk:
+        return demo_risk()
+
     if args.devices:
         return list_inventory()
 
@@ -657,8 +850,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"{__app_name__} v{__version__}")
     print(f"Platform: {info.display_name}")
-    print("Phase 7 complete: local inventory tracks first-seen vs known devices.")
-    print("Run --demo-inventory (no USB), --devices, or --monitor to update the baseline.")
+    print("Phase 8 complete: CONNECT events receive an explainable heuristic score.")
+    print("Run --demo-risk (no USB) or --monitor to see Risk: LEVEL (score) and rule ids.")
     return 0 if perms.can_persist else 1
 
 

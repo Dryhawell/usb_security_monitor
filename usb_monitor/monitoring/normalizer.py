@@ -198,6 +198,8 @@ def format_live_event(event: USBEvent) -> str:
         EventType.DISCONNECT: "USB DISCONNECTED",
         EventType.FIRST_SEEN: "NEW USB DEVICE DETECTED",
         EventType.KNOWN_DEVICE: "KNOWN USB DEVICE",
+        EventType.SUSPICIOUS_DEVICE: "SUSPICIOUS CHARACTERISTICS",
+        EventType.ANALYSIS: "ANALYSIS",
     }
     verb = titles.get(event.event_type, event.event_type.value)
     serial = mask_identifier(event.serial_number) if event.serial_number else "Unknown"
@@ -235,6 +237,15 @@ def format_live_event(event: USBEvent) -> str:
                 "  Trusted does not mean the device is safe.",
             ]
         )
+    if event.event_type is EventType.SUSPICIOUS_DEVICE:
+        lines.extend(
+            [
+                "",
+                "Note:",
+                "  HIGH/CRITICAL is a heuristic from observed characteristics.",
+                "  This is not a malware confirmation.",
+            ]
+        )
     lines.extend(["", "--------------------------------"])
     return "\n".join(lines)
 
@@ -256,11 +267,27 @@ def _format_inventory_status(event: USBEvent, inventory: dict | None) -> list[st
         trusted = "Yes" if inventory.get("trusted") else "No"
         count = inventory.get("connection_count")
         connections = str(count) if count is not None else "Unknown"
-    return [
+    lines = [
         f"  {baseline}",
         f"  Trusted: {trusted}",
         f"  Connections: {connections}",
     ]
+    if event.risk_level is not None and event.risk_score is not None:
+        lines.append(
+            f"  Risk: {event.risk_level.value} ({event.risk_score}) "
+            "[heuristic, not a malware verdict]"
+        )
+        risk = event.details.get("risk") if isinstance(event.details, dict) else None
+        if isinstance(risk, dict):
+            matches = risk.get("matches") or []
+            parts = [
+                f"{item.get('rule_id')} {item.get('score'):+d}"
+                for item in matches
+                if isinstance(item, dict)
+            ]
+            if parts:
+                lines.append("  Rules: " + ", ".join(parts))
+    return lines
 
 
 def _format_optional_bool(value: bool | None) -> str:
