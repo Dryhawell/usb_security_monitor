@@ -3,7 +3,8 @@
 Detection stays in the event source. Normalization produces USBEvent
 records. Metadata collection fills OS-exposed properties. Inventory
 tracks first-seen vs known. The analyzer attaches an explainable
-heuristic score; it does not decide that a device is malicious.
+heuristic score and session-window anomaly counts. It does not decide
+that a device is malicious.
 """
 
 from __future__ import annotations
@@ -99,19 +100,23 @@ class USBMonitor:
             metadata = NullMetadataCollector().collect(event)
         apply_metadata(event, metadata)
         observation = self._inventory.observe(event) if self._inventory is not None else None
-        assessment = None
-        if event.event_type is EventType.CONNECT:
-            assessment = self._analyzer.analyze(event, observation)
-            if assessment is not None:
-                apply_assessment(event, assessment)
-                if self._inventory is not None and observation is not None:
-                    self._inventory.update_risk(
-                        observation.device.device_id,
-                        assessment.score,
-                        assessment.level,
-                    )
-                if observation is not None and observation.derived_event is not None:
-                    apply_assessment(observation.derived_event, assessment)
+        assessment = self._analyzer.analyze(event, observation)
+        if (
+            observation is not None
+            and observation.derived_event is not None
+            and isinstance(event.details.get("anomaly"), dict)
+        ):
+            observation.derived_event.details["anomaly"] = dict(event.details["anomaly"])
+        if assessment is not None:
+            apply_assessment(event, assessment)
+            if self._inventory is not None and observation is not None:
+                self._inventory.update_risk(
+                    observation.device.device_id,
+                    assessment.score,
+                    assessment.level,
+                )
+            if observation is not None and observation.derived_event is not None:
+                apply_assessment(observation.derived_event, assessment)
         self._pending.append(event)
         self._log.info("%s", event)
         if observation is not None and observation.derived_event is not None:

@@ -287,6 +287,16 @@ def _format_inventory_status(event: USBEvent, inventory: dict | None) -> list[st
             ]
             if parts:
                 lines.append("  Rules: " + ", ".join(parts))
+    anomaly = event.details.get("anomaly") if isinstance(event.details, dict) else None
+    if isinstance(anomaly, dict):
+        connects = int(anomaly.get("connects_in_window") or 0)
+        events = int(anomaly.get("events_in_window") or 0)
+        new_devices = int(anomaly.get("new_devices_in_window") or 0)
+        if connects >= 2 or events >= 3 or new_devices >= 2:
+            lines.append(
+                f"  Window: {connects} connects / {events} events / "
+                f"{new_devices} new identities"
+            )
     return lines
 
 

@@ -6,6 +6,7 @@ that were already observed.
 
 from __future__ import annotations
 
+from usb_monitor.analysis.anomaly import AnomalyTracker
 from usb_monitor.analysis.risk_engine import RiskAssessment, evaluate_risk
 from usb_monitor.analysis.rules import AnalysisContext
 from usb_monitor.inventory import Observation
@@ -14,16 +15,17 @@ from usb_monitor.models.event import USBEvent
 
 
 class Analyzer:
-    """Evaluate CONNECT events against the rule catalog."""
+    """Evaluate CONNECT events against the rule catalog and session windows."""
+
+    def __init__(self, tracker: AnomalyTracker | None = None) -> None:
+        self._tracker = tracker or AnomalyTracker()
 
     def analyze(
         self,
         event: USBEvent,
         observation: Observation | None = None,
     ) -> RiskAssessment | None:
-        """Score a CONNECT. DISCONNECT is ignored (no extra characteristics)."""
-        if event.event_type is not EventType.CONNECT:
-            return None
+        """Record CONNECT/DISCONNECT into the window, then score CONNECT only."""
         is_first_seen = False
         device = None
         previous = None
@@ -35,11 +37,18 @@ class Analyzer:
             inventory = event.details.get("inventory") if isinstance(event.details, dict) else None
             if isinstance(inventory, dict):
                 is_first_seen = bool(inventory.get("is_first_seen"))
+        snapshot = self._tracker.record(event, is_first_seen=is_first_seen)
+        event.details["anomaly"] = snapshot.to_dict()
+        if event.event_type is not EventType.CONNECT:
+            return None
         context = AnalysisContext(
             event=event,
             device=device,
             is_first_seen=is_first_seen,
             previous=previous,
+            connects_in_window=snapshot.connect_count,
+            events_in_window=snapshot.event_count,
+            new_devices_in_window=snapshot.new_device_count,
         )
         return evaluate_risk(context)
 

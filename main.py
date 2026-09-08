@@ -1,7 +1,8 @@
 """USB Security Monitor entry point.
 
-Phase 8 adds explainable rule-based risk scoring on CONNECT events.
-The score is a local heuristic, not a malware verdict.
+Phase 9 adds sliding-window anomaly detection (rapid reconnect,
+repeated events, multiple new devices). Scores remain a heuristic,
+not a malware verdict.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import json
 import sys
 import tempfile
 import time
+from datetime import timedelta
 from pathlib import Path
 
 from usb_monitor import __app_name__, __version__
@@ -147,6 +149,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Run rule-based risk scoring scenarios without USB hardware.",
     )
     parser.add_argument(
+        "--demo-anomaly",
+        action="store_true",
+        help="Run reconnect/new-device window scenarios without USB hardware.",
+    )
+    parser.add_argument(
         "--devices",
         action="store_true",
         help="List locally observed devices from inventory.",
@@ -186,6 +193,7 @@ def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
         f"  Metadata: {'windows_setupapi' if WindowsEventSource.is_available() else 'none'}",
         f"  Inventory: {inventory_line}",
         f"  Risk analyzer: rule-based heuristic (not a malware verdict)",
+        f"  Anomaly windows: rapid reconnect / repeated events / multiple new devices",
         f"  PowerShell on PATH: {'Yes' if info.powershell_available else 'No'}",
         "",
         "Permissions",
@@ -645,7 +653,7 @@ def demo_risk() -> int:
         _IdleEventSource(),
         collector=NullMetadataCollector(),
         inventory=inventory,
-        analyzer=analyzer,
+        analyzer=Analyzer(),
     )
 
     print()
@@ -691,7 +699,7 @@ def demo_risk() -> int:
         _IdleEventSource(),
         collector=NullMetadataCollector(),
         inventory=stacked_inventory,
-        analyzer=analyzer,
+        analyzer=Analyzer(),
     )
     baseline = USBEvent(
         event_type=EventType.CONNECT,
@@ -763,6 +771,153 @@ def demo_risk() -> int:
     return 0 if ok else 1
 
 
+def _timed_storage(device_id: str, serial: str, timestamp, event_type: EventType = EventType.CONNECT) -> USBEvent:
+    vid, pid, _rest = device_id.split(":", 2)
+    return USBEvent(
+        event_type=event_type,
+        timestamp=timestamp,
+        device_id=device_id,
+        vendor_id=vid,
+        product_id=pid,
+        serial_number=serial,
+        manufacturer="SanDisk",
+        device_name="Ultra USB",
+        device_type=DeviceType.USB_STORAGE,
+        removable=True,
+        source="demo",
+    )
+
+
+def _new_monitor() -> USBMonitor:
+    return USBMonitor(
+        _IdleEventSource(),
+        collector=NullMetadataCollector(),
+        inventory=DeviceInventory(path=None),
+        analyzer=Analyzer(),
+    )
+
+
+def demo_anomaly() -> int:
+    """Reconnect bursts and first-seen floods. No USB hardware."""
+    origin = utc_now()
+
+    print("Scenario A — two CONNECTs in 15s (below rapid-reconnect threshold):")
+    two = _new_monitor()
+    two_events = []
+    for offset in (0, 4):
+        two_events.extend(
+            _feed_connect(two, _timed_storage("0781:5581:DEMO1234", "DEMO1234", origin + timedelta(seconds=offset)))
+        )
+    two_connects = [item for item in two_events if item.event_type is EventType.CONNECT]
+    print(format_live_event(two_connects[-1]) if two_connects else "missing")
+    print()
+
+    print("Scenario B — three CONNECTs in 15s (RAPID_RECONNECT):")
+    rapid = _new_monitor()
+    rapid_events = []
+    for offset in (0, 4, 8):
+        rapid_events.extend(
+            _feed_connect(
+                rapid, _timed_storage("0781:5581:DEMO1234", "DEMO1234", origin + timedelta(seconds=offset))
+            )
+        )
+    rapid_connects = [item for item in rapid_events if item.event_type is EventType.CONNECT]
+    print(format_live_event(rapid_connects[-1]) if rapid_connects else "missing")
+    print()
+
+    print("Scenario C — CONNECT/DISCONNECT flap (REPEATED_EVENTS, and RAPID if 3 connects):")
+    flap = _new_monitor()
+    flap_events = []
+    sequence = (
+        (0, EventType.CONNECT),
+        (2, EventType.DISCONNECT),
+        (4, EventType.CONNECT),
+        (6, EventType.DISCONNECT),
+        (8, EventType.CONNECT),
+    )
+    for offset, event_type in sequence:
+        flap_events.extend(
+            _feed_connect(
+                flap,
+                _timed_storage(
+                    "0781:5581:DEMO1234",
+                    "DEMO1234",
+                    origin + timedelta(seconds=offset),
+                    event_type,
+                ),
+            )
+        )
+    flap_connects = [item for item in flap_events if item.event_type is EventType.CONNECT]
+    print(format_live_event(flap_connects[-1]) if flap_connects else "missing")
+    print()
+
+    print("Scenario D — three first-seen identities in 60s (MULTIPLE_NEW_DEVICES):")
+    flood = _new_monitor()
+    flood_events = []
+    for index, serial in enumerate(("NEW001", "NEW002", "NEW003")):
+        flood_events.extend(
+            _feed_connect(
+                flood,
+                _timed_storage(
+                    f"0781:5581:{serial}",
+                    serial,
+                    origin + timedelta(seconds=index * 5),
+                ),
+            )
+        )
+    flood_connects = [item for item in flood_events if item.event_type is EventType.CONNECT]
+    print(format_live_event(flood_connects[-1]) if flood_connects else "missing")
+    print()
+
+    print("Scenario E — three first-seen identities 70s apart (window expired):")
+    spaced = _new_monitor()
+    spaced_events = []
+    for index, serial in enumerate(("OLD001", "OLD002", "OLD003")):
+        spaced_events.extend(
+            _feed_connect(
+                spaced,
+                _timed_storage(
+                    f"ABCD:0001:{serial}",
+                    serial,
+                    origin + timedelta(seconds=index * 70),
+                ),
+            )
+        )
+    spaced_connects = [item for item in spaced_events if item.event_type is EventType.CONNECT]
+    print(format_live_event(spaced_connects[-1]) if spaced_connects else "missing")
+    print()
+
+    two_ids = _risk_ids(two_connects[-1]) if two_connects else []
+    rapid_ids = _risk_ids(rapid_connects[-1]) if rapid_connects else []
+    flap_ids = _risk_ids(flap_connects[-1]) if flap_connects else []
+    flood_ids = _risk_ids(flood_connects[-1]) if flood_connects else []
+    spaced_ids = _risk_ids(spaced_connects[-1]) if spaced_connects else []
+
+    ok = (
+        two_connects
+        and "RAPID_RECONNECT" not in two_ids
+        and rapid_connects
+        and "RAPID_RECONNECT" in rapid_ids
+        and rapid_connects[-1].risk_level is not RiskLevel.CRITICAL
+        and flap_connects
+        and "REPEATED_EVENTS" in flap_ids
+        and flood_connects
+        and "MULTIPLE_NEW_DEVICES" in flood_ids
+        and flood_connects[-1].risk_level is not RiskLevel.CRITICAL
+        and spaced_connects
+        and "MULTIPLE_NEW_DEVICES" not in spaced_ids
+        and not any(item.event_type is EventType.SUSPICIOUS_DEVICE for item in two_events)
+        and not any(item.event_type is EventType.SUSPICIOUS_DEVICE for item in rapid_events)
+    )
+    print("Two reconnects did not fire RAPID_RECONNECT: OK")
+    print("Three reconnects fired RAPID_RECONNECT: OK" if "RAPID_RECONNECT" in rapid_ids else "rapid FAILED")
+    print("Flap fired REPEATED_EVENTS: OK" if "REPEATED_EVENTS" in flap_ids else "flap FAILED")
+    print("Three new devices fired MULTIPLE_NEW_DEVICES: OK" if "MULTIPLE_NEW_DEVICES" in flood_ids else "flood FAILED")
+    print("Spaced first-seen did not keep the window: OK" if "MULTIPLE_NEW_DEVICES" not in spaced_ids else "spacing FAILED")
+    print("Demo result: OK" if ok else "Demo result: FAILED")
+    return 0 if ok else 1
+
+
 def list_inventory() -> int:
     inventory = DeviceInventory.load()
     stats = inventory.stats()
@@ -797,7 +952,7 @@ def main(argv: list[str] | None = None) -> int:
     logger = get_logger("main")
 
     logger.info("%s %s started", __app_name__, __version__)
-    logger.info("Phase 8: explainable rule-based risk scoring")
+    logger.info("Phase 9: sliding-window anomaly detection")
 
     info = detect_platform()
     perms = check_permissions()
@@ -827,6 +982,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.demo_risk:
         return demo_risk()
 
+    if args.demo_anomaly:
+        return demo_anomaly()
+
     if args.devices:
         return list_inventory()
 
@@ -850,8 +1008,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"{__app_name__} v{__version__}")
     print(f"Platform: {info.display_name}")
-    print("Phase 8 complete: CONNECT events receive an explainable heuristic score.")
-    print("Run --demo-risk (no USB) or --monitor to see Risk: LEVEL (score) and rule ids.")
+    print("Phase 9 complete: CONNECT scoring includes reconnect and first-seen windows.")
+    print("Run --demo-anomaly (no USB) or --monitor to see RAPID_RECONNECT / MULTIPLE_NEW_DEVICES.")
     return 0 if perms.can_persist else 1
 
 

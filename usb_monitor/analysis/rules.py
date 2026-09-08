@@ -11,6 +11,14 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from usb_monitor.analysis.anomaly import (
+    MULTIPLE_NEW_MIN_DEVICES,
+    MULTIPLE_NEW_WINDOW_SECONDS,
+    RAPID_RECONNECT_MIN_CONNECTS,
+    RAPID_RECONNECT_WINDOW_SECONDS,
+    REPEATED_EVENTS_MIN_EVENTS,
+    REPEATED_EVENTS_WINDOW_SECONDS,
+)
 from usb_monitor.models.device import Device
 from usb_monitor.models.enums import DeviceType, Severity
 from usb_monitor.models.event import USBEvent
@@ -42,6 +50,9 @@ class AnalysisContext:
     device: Device | None = None
     is_first_seen: bool = False
     previous: Device | None = None
+    connects_in_window: int = 0
+    events_in_window: int = 0
+    new_devices_in_window: int = 0
 
 
 @dataclass(frozen=True)
@@ -118,6 +129,30 @@ RULE_REMOVABLE_CHANGED = Rule(
     severity=Severity.LOW,
     recommendation="USB hard disks often report as fixed; a sudden change is worth a visual check.",
 )
+RULE_RAPID_RECONNECT = Rule(
+    rule_id="RAPID_RECONNECT",
+    name="Rapid reconnect",
+    description="The same identity connected several times in a short window.",
+    score=10,
+    severity=Severity.LOW,
+    recommendation="A flapping port or repeated plug/unplug is worth a visual check; this is not a malware confirmation.",
+)
+RULE_REPEATED_EVENTS = Rule(
+    rule_id="REPEATED_EVENTS",
+    name="Repeated connect/disconnect",
+    description="The same identity produced a burst of CONNECT and DISCONNECT events.",
+    score=8,
+    severity=Severity.LOW,
+    recommendation="Unstable USB ports and hubs commonly flap; confirm the physical connection if the burst is unexpected.",
+)
+RULE_MULTIPLE_NEW = Rule(
+    rule_id="MULTIPLE_NEW_DEVICES",
+    name="Multiple new devices",
+    description="Several first-seen identities appeared on this endpoint in a short window.",
+    score=20,
+    severity=Severity.MEDIUM,
+    recommendation="Several new removable devices in one minute is unusual on a workstation. Verify the operator activity.",
+)
 RULE_TRUSTED = Rule(
     rule_id="TRUSTED_DEVICE",
     name="Trusted device",
@@ -136,6 +171,9 @@ RULES: tuple[Rule, ...] = (
     RULE_TYPE_MISMATCH,
     RULE_IDENTITY_CHANGE,
     RULE_REMOVABLE_CHANGED,
+    RULE_RAPID_RECONNECT,
+    RULE_REPEATED_EVENTS,
+    RULE_MULTIPLE_NEW,
     RULE_TRUSTED,
 )
 
@@ -218,6 +256,36 @@ def check_removable_changed(context: AnalysisContext) -> RuleMatch | None:
     return RuleMatch(RULE_REMOVABLE_CHANGED, "OS now reports removable=True for a previously non-removable identity.")
 
 
+def check_rapid_reconnect(context: AnalysisContext) -> RuleMatch | None:
+    if context.connects_in_window < RAPID_RECONNECT_MIN_CONNECTS:
+        return None
+    return RuleMatch(
+        RULE_RAPID_RECONNECT,
+        f"{context.connects_in_window} CONNECT events for this identity within "
+        f"{RAPID_RECONNECT_WINDOW_SECONDS}s.",
+    )
+
+
+def check_repeated_events(context: AnalysisContext) -> RuleMatch | None:
+    if context.events_in_window < REPEATED_EVENTS_MIN_EVENTS:
+        return None
+    return RuleMatch(
+        RULE_REPEATED_EVENTS,
+        f"{context.events_in_window} CONNECT/DISCONNECT events for this identity within "
+        f"{REPEATED_EVENTS_WINDOW_SECONDS}s.",
+    )
+
+
+def check_multiple_new_devices(context: AnalysisContext) -> RuleMatch | None:
+    if not context.is_first_seen or context.new_devices_in_window < MULTIPLE_NEW_MIN_DEVICES:
+        return None
+    return RuleMatch(
+        RULE_MULTIPLE_NEW,
+        f"{context.new_devices_in_window} first-seen identities within "
+        f"{MULTIPLE_NEW_WINDOW_SECONDS}s on this endpoint.",
+    )
+
+
 def check_trusted(context: AnalysisContext) -> RuleMatch | None:
     if context.device is None or not context.device.trusted:
         return None
@@ -233,5 +301,8 @@ CHECKERS: tuple[RuleChecker, ...] = (
     check_type_mismatch,
     check_identity_change,
     check_removable_changed,
+    check_rapid_reconnect,
+    check_repeated_events,
+    check_multiple_new_devices,
     check_trusted,
 )
