@@ -4,8 +4,9 @@ Detection stays in the event source. Normalization produces USBEvent
 records. Metadata collection fills OS-exposed properties. Inventory
 tracks first-seen vs known. The analyzer attaches an explainable
 heuristic score and session-window anomaly counts. AlertManager turns
-those findings into de-duplicated session alerts. None of this decides
-that a device is malicious.
+those findings into de-duplicated session alerts. EventStore and
+AlertStore persist records as local JSON. None of this decides that a
+device is malicious.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from usb_monitor.monitoring.metadata import (
     apply_metadata,
 )
 from usb_monitor.monitoring.normalizer import EventNormalizer
+from usb_monitor.storage import EventStore
 from usb_monitor.utils.logger import get_logger
 
 _POLL_SLICE = 0.2
@@ -42,6 +44,7 @@ class USBMonitor:
         inventory: DeviceInventory | None = None,
         analyzer: Analyzer | None = None,
         alerts: AlertManager | None = None,
+        event_store: EventStore | None = None,
     ) -> None:
         self._source = source
         self._normalizer = normalizer or EventNormalizer(clock=time.monotonic)
@@ -49,6 +52,7 @@ class USBMonitor:
         self._inventory = inventory
         self._analyzer = analyzer or Analyzer()
         self._alerts = alerts if alerts is not None else AlertManager()
+        self._event_store = event_store
         self._pending: deque[USBEvent] = deque()
         self._log = get_logger("monitoring.usb")
 
@@ -131,15 +135,17 @@ class USBMonitor:
                 attach_decision(observation.derived_event, decision)
             if decision.alert is not None:
                 self._log.info("%s", decision.alert)
+        self._emit(event)
+        if observation is not None and observation.derived_event is not None:
+            self._emit(observation.derived_event)
+        if assessment is not None and should_emit_suspicious(assessment):
+            self._emit(_suspicious_from(event))
+
+    def _emit(self, event: USBEvent) -> None:
         self._pending.append(event)
         self._log.info("%s", event)
-        if observation is not None and observation.derived_event is not None:
-            self._pending.append(observation.derived_event)
-            self._log.info("%s", observation.derived_event)
-        if assessment is not None and should_emit_suspicious(assessment):
-            suspicious = _suspicious_from(event)
-            self._pending.append(suspicious)
-            self._log.info("%s", suspicious)
+        if self._event_store is not None:
+            self._event_store.append(event)
 
     def _wait_for_event(self, timeout: float | None) -> USBEvent | None:
         deadline = None if timeout is None else time.monotonic() + timeout

@@ -29,6 +29,8 @@ data/reports/*
 !data/reports/.gitkeep
 data/inventory/*
 !data/inventory/.gitkeep
+data/alerts/*
+!data/alerts/.gitkeep
 **/.write_probe
 
 # IDE / editor

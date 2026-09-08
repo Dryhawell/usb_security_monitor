@@ -1,7 +1,7 @@
 """USB Security Monitor entry point.
 
-Phase 10 adds an in-memory AlertManager with fingerprint deduplication
-and cooldown. Alerts are a heuristic convenience, not a malware verdict.
+Phase 11 persists events.json, alerts.json, and devices.json locally.
+Files stay on this machine; the tool still does not send telemetry.
 """
 
 from __future__ import annotations
@@ -49,6 +49,7 @@ from usb_monitor.monitoring import (
     list_removable_drive_letters,
 )
 from usb_monitor.utils.logger import get_logger, setup_logging
+from usb_monitor.storage import AlertStore, EventStore
 from usb_monitor.utils.permissions import (
     PermissionStatus,
     check_permissions,
@@ -161,6 +162,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Run alert generation, dedup, and cooldown scenarios without USB hardware.",
     )
     parser.add_argument(
+        "--demo-storage",
+        action="store_true",
+        help="Round-trip events.json / alerts.json / devices.json without USB hardware.",
+    )
+    parser.add_argument(
         "--devices",
         action="store_true",
         help="List locally observed devices from inventory.",
@@ -185,8 +191,15 @@ def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
         source_label = "windows_wm_devicechange (idle)"
     else:
         source_label = "unavailable on this platform"
+    event_stats = EventStore.load().stats()
+    alert_stats = AlertStore.load().stats()
     stats = DeviceInventory.load().stats()
     inventory_line = f"{stats['total']} device(s), {stats['trusted']} trusted"
+    storage_line = (
+        f"events.json {event_stats['total']}, "
+        f"alerts.json {alert_stats['total']}, "
+        f"devices.json {stats['total']}"
+    )
     lines = [
         f"{__app_name__} v{__version__}",
         "",
@@ -201,7 +214,8 @@ def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
         f"  Inventory: {inventory_line}",
         f"  Risk analyzer: rule-based heuristic (not a malware verdict)",
         f"  Anomaly windows: rapid reconnect / repeated events / multiple new devices",
-        f"  Alert manager: in-memory, 60s cooldown (not a malware verdict)",
+        f"  Alert manager: in-memory cooldown; emitted alerts persist locally",
+        f"  Storage: {storage_line} (local only, no telemetry)",
         f"  PowerShell on PATH: {'Yes' if info.powershell_available else 'No'}",
         "",
         "Permissions",
@@ -1026,6 +1040,64 @@ def demo_alerts() -> int:
     return 0 if ok else 1
 
 
+def demo_storage() -> int:
+    """Persist events, alerts, and devices in a temp folder. No USB hardware."""
+    origin = utc_now()
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        events_path = root / "events" / "events.json"
+        alerts_path = root / "alerts" / "alerts.json"
+        devices_path = root / "inventory" / "devices.json"
+        monitor = USBMonitor(
+            _IdleEventSource(),
+            collector=NullMetadataCollector(),
+            inventory=DeviceInventory(devices_path),
+            analyzer=Analyzer(),
+            alerts=AlertManager(store=AlertStore(alerts_path)),
+            event_store=EventStore(events_path),
+        )
+        produced = _feed_connect(
+            monitor, _timed_storage("0781:5581:STORE01", "STORE01", origin)
+        )
+        events = EventStore.load(events_path).list_events()
+        alerts = AlertStore.load(alerts_path).list_alerts()
+        devices = DeviceInventory.load(devices_path).list_devices()
+        print(f"Wrote {len(events)} event(s) to {events_path.name}")
+        print(f"Wrote {len(alerts)} alert(s) to {alerts_path.name}")
+        print(f"Wrote {len(devices)} device(s) to {devices_path.name}")
+        if events:
+            loaded = USBEvent.from_dict(events[0].to_dict())
+            print(f"Event round-trip type={loaded.event_type.value} id={loaded.safe_device_id}")
+        if alerts:
+            print(format_alert(alerts[0]))
+
+        none_events = EventStore(path=None)
+        none_events.append(_timed_storage("0781:5581:NONE00", "NONE00", origin))
+
+        bad = root / "corrupt" / "events.json"
+        bad.parent.mkdir(parents=True, exist_ok=True)
+        bad.write_text("{not-json", encoding="utf-8")
+        recovered = EventStore.load(bad)
+
+        connect_types = [item.event_type for item in produced]
+        ok = (
+            EventType.CONNECT in connect_types
+            and EventType.FIRST_SEEN in connect_types
+            and len(events) >= 2
+            and events[0].event_id == USBEvent.from_dict(events[0].to_dict()).event_id
+            and len(alerts) == 1
+            and alerts[0].severity is Severity.INFO
+            and len(devices) == 1
+            and devices[0].connection_count == 1
+            and recovered.stats()["total"] == 0
+            and none_events.stats()["total"] == 1
+        )
+        print("Corrupt JSON started empty: OK" if recovered.stats()["total"] == 0 else "corrupt FAILED")
+        print("Live monitor wrote all three files: OK" if len(events) >= 2 and alerts and devices else "write FAILED")
+        print("Demo result: OK" if ok else "Demo result: FAILED")
+        return 0 if ok else 1
+
+
 def list_inventory() -> int:
     inventory = DeviceInventory.load()
     stats = inventory.stats()
@@ -1060,7 +1132,7 @@ def main(argv: list[str] | None = None) -> int:
     logger = get_logger("main")
 
     logger.info("%s %s started", __app_name__, __version__)
-    logger.info("Phase 10: in-memory alerts with dedup and cooldown")
+    logger.info("Phase 11: local JSON event, alert, and inventory storage")
 
     info = detect_platform()
     perms = check_permissions()
@@ -1096,6 +1168,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.demo_alerts:
         return demo_alerts()
 
+    if args.demo_storage:
+        return demo_storage()
+
     if args.devices:
         return list_inventory()
 
@@ -1119,8 +1194,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"{__app_name__} v{__version__}")
     print(f"Platform: {info.display_name}")
-    print("Phase 10 complete: CONNECT findings can raise de-duplicated session alerts.")
-    print("Run --demo-alerts (no USB) or --monitor to see cooldown/dedup behaviour.")
+    print("Phase 11 complete: events, alerts, and devices persist as local JSON.")
+    print("Run --demo-storage (no USB) or --monitor to write data/events and data/alerts.")
     return 0 if perms.can_persist else 1
 
 

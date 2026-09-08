@@ -2,8 +2,8 @@
 
 Alerts are a Blue Team convenience, not a malware verdict. Identical
 warnings for the same fingerprint are suppressed for a cooldown window
-so a flapping device cannot flood the operator. Storage of alerts.json
-is a later phase; this manager keeps the current session only.
+so a flapping device cannot flood the operator. Emitted alerts may be
+appended to a local AlertStore; suppressed warnings are not written.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from usb_monitor.analysis.risk_engine import RiskAssessment
 from usb_monitor.models.alert import Alert
 from usb_monitor.models.enums import RiskLevel, Severity
 from usb_monitor.models.event import USBEvent
+from usb_monitor.storage.alert_store import AlertStore
 from usb_monitor.utils.logger import get_logger
 from usb_monitor.utils.time import ensure_utc
 
@@ -59,10 +60,16 @@ class AlertStats:
 class AlertManager:
     """Turn CONNECT assessments into de-duplicated session alerts."""
 
-    def __init__(self, cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS) -> None:
+    def __init__(
+        self,
+        cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS,
+        *,
+        store: AlertStore | None = None,
+    ) -> None:
         if cooldown_seconds < 0:
             raise ValueError("cooldown_seconds must be >= 0")
         self._cooldown = float(cooldown_seconds)
+        self._store = store
         self._lock = threading.Lock()
         self._last: dict[str, _CooldownEntry] = {}
         self._emitted: list[Alert] = []
@@ -102,7 +109,7 @@ class AlertManager:
                         severity=severity,
                         alert_id=alert.alert_id,
                     )
-                    self._emitted.append(alert)
+                    self._remember(alert)
                     self._log.info(
                         "Alert escalated %s %s %s",
                         severity.value,
@@ -125,9 +132,14 @@ class AlertManager:
                 severity=severity,
                 alert_id=alert.alert_id,
             )
-            self._emitted.append(alert)
+            self._remember(alert)
             self._log.info("Alert %s %s %s", severity.value, title, event.safe_device_id)
             return AlertDecision(alert=alert, fingerprint=fingerprint)
+
+    def _remember(self, alert: Alert) -> None:
+        self._emitted.append(alert)
+        if self._store is not None:
+            self._store.append(alert)
 
 
 def attach_decision(event: USBEvent, decision: AlertDecision) -> None:

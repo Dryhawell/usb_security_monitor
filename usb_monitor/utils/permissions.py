@@ -16,7 +16,7 @@ from usb_monitor.utils.platform import is_windows
 
 DEFAULT_DATA_DIR = Path("data")
 DEFAULT_LOG_DIR = Path("logs")
-_DATA_SUBDIRS = ("events", "inventory", "reports")
+_DATA_SUBDIRS = ("events", "inventory", "reports", "alerts")
 _PROBE_NAME = ".write_probe"
 
 

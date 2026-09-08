@@ -10,9 +10,8 @@ This project is intended for:
 - endpoint security fundamentals
 - Windows-focused USB event monitoring
 
-**Current status:** Phase 10 — in-memory alerts with deduplication
-and cooldown. JSON event/alert storage and the full CLI are not
-implemented yet.
+**Current status:** Phase 11 — local JSON storage for events, alerts,
+and inventory. Reports and the full CLI are not implemented yet.
 
 ## Overview
 
@@ -43,10 +42,10 @@ Implemented:
 - Explainable rule-based risk scoring (heuristic, not a malware verdict)
 - Sliding-window anomaly signals (rapid reconnect, event flaps, new-device bursts)
 - Local session alerts with fingerprint deduplication and cooldown
+- Local JSON storage (`events.json`, `alerts.json`, `devices.json`)
 
 Planned:
 
-- JSON event/alert/inventory storage
 - CLI reports (human-readable, JSON, CSV)
 - Unit tests with a mocked event source
 
@@ -64,9 +63,10 @@ It will:
 
 Planned local paths:
 
-- `data/events/` — event records
-- `data/inventory/` — observed devices
-- `data/reports/` — exported reports
+- `data/events/` — event records (`events.json`)
+- `data/inventory/` — observed devices (`devices.json`)
+- `data/alerts/` — emitted alerts (`alerts.json`)
+- `data/reports/` — exported reports (later)
 - `logs/usb_monitor.log` — application log
 
 Serial numbers and similar identifiers are treated as sensitive local
@@ -122,6 +122,7 @@ python main.py --demo-inventory
 python main.py --demo-risk
 python main.py --demo-anomaly
 python main.py --demo-alerts
+python main.py --demo-storage
 python main.py --devices
 python main.py --trust DEVICE_ID
 python main.py --untrust DEVICE_ID

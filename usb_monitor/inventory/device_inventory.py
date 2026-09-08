@@ -8,9 +8,6 @@ Trusted is an operator flag. It must not hide CONNECT/DISCONNECT events.
 
 from __future__ import annotations
 
-import json
-import os
-import tempfile
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -19,6 +16,7 @@ from pathlib import Path
 from usb_monitor.models.device import Device, compose_device_id, normalize_optional_text
 from usb_monitor.models.enums import DeviceType, EventType, InterfaceType, RiskLevel, clamp_risk_score
 from usb_monitor.models.event import USBEvent
+from usb_monitor.storage.atomic import read_json_file, write_json_atomic
 from usb_monitor.utils.logger import get_logger
 from usb_monitor.utils.permissions import DEFAULT_DATA_DIR
 from usb_monitor.utils.time import format_display, to_iso8601
@@ -61,12 +59,8 @@ class DeviceInventory:
         """Replace in-memory state from disk. Missing/corrupt files start empty."""
         if self._path is None:
             return
-        if not self._path.exists():
-            return
-        try:
-            raw = json.loads(self._path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            self._log.warning("Inventory file could not be read; starting empty (%s)", exc)
+        raw = read_json_file(self._path)
+        if raw is None:
             return
         records = raw.get("devices") if isinstance(raw, dict) else None
         if not isinstance(records, list):
@@ -94,23 +88,8 @@ class DeviceInventory:
             "version": _SCHEMA_VERSION,
             "devices": [device.to_dict() for device in self.list_devices()],
         }
-        text = json.dumps(payload, indent=2)
         try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            fd, tmp_name = tempfile.mkstemp(
-                prefix="devices.",
-                suffix=".json.tmp",
-                dir=str(self._path.parent),
-            )
-            tmp_path = Path(tmp_name)
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                    handle.write(text)
-                    handle.write("\n")
-                tmp_path.replace(self._path)
-            except OSError:
-                tmp_path.unlink(missing_ok=True)
-                raise
+            write_json_atomic(self._path, payload, prefix="devices.")
         except OSError as exc:
             self._log.error("Could not save inventory: %s", exc)
 

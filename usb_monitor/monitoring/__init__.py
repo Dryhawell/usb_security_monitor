@@ -7,6 +7,7 @@ Inventory and the analyzer attach first-seen state and a heuristic score.
 AlertManager adds session alerts with cooldown.
 """
 
+from usb_monitor.alerts import AlertManager
 from usb_monitor.inventory import DeviceInventory
 from usb_monitor.monitoring.event_source import (
     EventSource,
@@ -33,6 +34,7 @@ from usb_monitor.monitoring.windows_metadata import (
     list_removable_drive_letters,
 )
 from usb_monitor.monitoring.windows_monitor import WindowsEventSource
+from usb_monitor.storage import AlertStore, EventStore
 from usb_monitor.utils.platform import UnsupportedPlatformError, is_windows
 
 
@@ -57,11 +59,13 @@ def create_metadata_collector() -> MetadataCollector:
 
 
 def create_monitor() -> USBMonitor:
-    """Build a USBMonitor over the native event source, metadata, and inventory."""
+    """Build a USBMonitor over the native event source, metadata, inventory, and stores."""
     return USBMonitor(
         create_event_source(),
         collector=create_metadata_collector(),
         inventory=DeviceInventory.load(),
+        alerts=AlertManager(store=AlertStore.load()),
+        event_store=EventStore.load(),
     )
 
 
