@@ -1,0 +1,4 @@
+# Test-only dependencies. The application has no runtime third-party packages.
+# pytest is the first external package: it runs the mocked-event-source suite
+# without USB hardware.
+pytest>=8.0
