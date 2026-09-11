@@ -144,6 +144,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Write sample JSON/CSV/text reports in a temp folder (no USB hardware).",
     )
     parser.add_argument(
+        "--demo-reliability",
+        action="store_true",
+        help="Verify poll/metadata/store failures do not kill the monitor (no USB hardware).",
+    )
+    parser.add_argument(
         "--devices",
         action="store_true",
         help="List locally observed devices from inventory.",
