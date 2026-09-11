@@ -103,7 +103,7 @@ class EventSource(ABC):
 
     @abstractmethod
     def stop(self, timeout: float = 5.0) -> None:
-        """Stop the watcher and join background work."""
+        """Stop the watcher and join background work. Must be idempotent."""
 
     @abstractmethod
     def poll(self, timeout: float | None = None) -> RawDeviceEvent | None:
