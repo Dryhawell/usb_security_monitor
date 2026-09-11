@@ -1,7 +1,7 @@
 """USB Security Monitor entry point.
 
-Phase 12 exposes argparse subcommands for monitor, inventory, events,
-alerts, and a local console summary. Legacy flags remain as aliases.
+Phase 13 adds local JSON, CSV, and human-readable report files.
+CLI subcommands and legacy flags remain the operator surface.
 """
 
 from __future__ import annotations
@@ -59,6 +59,7 @@ from usb_monitor.monitoring import (
     list_removable_drive_letters,
 )
 from usb_monitor.utils.logger import get_logger, setup_logging
+from usb_monitor.reports import DISCLAIMER, build_local_report, export_report
 from usb_monitor.storage import AlertStore, EventStore
 from usb_monitor.utils.permissions import (
     PermissionStatus,
@@ -106,6 +107,7 @@ def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
         f"  Alert manager: in-memory cooldown; emitted alerts persist locally",
         f"  CLI: subcommands (legacy flags such as --status still work)",
         f"  Storage: {storage_line} (local only, no telemetry)",
+        f"  Reports: JSON/CSV/text under data/reports/ (report --export)",
         f"  PowerShell on PATH: {'Yes' if info.powershell_available else 'No'}",
         "",
         "Permissions",
@@ -988,6 +990,68 @@ def demo_storage() -> int:
         return 0 if ok else 1
 
 
+def demo_report() -> int:
+    """Export JSON/CSV/text reports from sample local records. No USB hardware."""
+    origin = utc_now()
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        events_path = root / "events" / "events.json"
+        alerts_path = root / "alerts" / "alerts.json"
+        devices_path = root / "inventory" / "devices.json"
+        out = root / "reports"
+        monitor = USBMonitor(
+            _IdleEventSource(),
+            collector=NullMetadataCollector(),
+            inventory=DeviceInventory(devices_path),
+            analyzer=Analyzer(),
+            alerts=AlertManager(store=AlertStore(alerts_path)),
+            event_store=EventStore(events_path),
+        )
+        _feed_connect(
+            monitor, _timed_storage("0781:5581:RPT1234", "RPT1234", origin)
+        )
+        report = build_local_report(
+            limit=0,
+            inventory=DeviceInventory.load(devices_path),
+            events=EventStore.load(events_path),
+            alerts=AlertStore.load(alerts_path),
+            generated_at=origin,
+        )
+        written = export_report(report, out)
+        names = {path.name: path for path in written}
+        json_path = next(path for path in written if path.suffix == ".json")
+        text_path = next(path for path in written if path.suffix == ".txt")
+        payload = json.loads(json_path.read_text(encoding="utf-8"))
+        text = text_path.read_text(encoding="utf-8")
+        devices_csv = names[f"{json_path.stem}-devices.csv"].read_text(encoding="utf-8")
+        print(f"Wrote {len(written)} file(s) under {out.name}")
+        for path in written:
+            print(f"  {path.name}")
+        serial_in_json = (
+            payload.get("inventory", {}).get("devices", [{}])[0].get("serial_number")
+            == "RPT1234"
+        )
+        header_ok = "serial_number" in devices_csv.splitlines()[0]
+        masked = "RPT1234" not in text and "********1234" in text
+        disclaimer_ok = DISCLAIMER in text and payload.get("disclaimer") == DISCLAIMER
+        local_only = payload.get("local_only") is True
+        ok = (
+            len(written) == 5
+            and serial_in_json
+            and header_ok
+            and masked
+            and disclaimer_ok
+            and local_only
+            and payload.get("events", {}).get("total", 0) >= 2
+            and payload.get("alerts", {}).get("shown", 0) == 1
+        )
+        print("JSON kept the serial for local forensics: OK" if serial_in_json else "json serial FAILED")
+        print("CSV included a serial_number column: OK" if header_ok else "csv FAILED")
+        print("Text report masked the serial: OK" if masked else "mask FAILED")
+        print("Demo result: OK" if ok else "Demo result: FAILED")
+        return 0 if ok else 1
+
+
 def list_inventory() -> int:
     inventory = DeviceInventory.load()
     stats = inventory.stats()
@@ -1022,7 +1086,7 @@ def main(argv: list[str] | None = None) -> int:
     logger = get_logger("main")
 
     logger.info("%s %s started", __app_name__, __version__)
-    logger.info("Phase 12: CLI subcommands with legacy flag aliases")
+    logger.info("Phase 13: local JSON/CSV/text report export")
 
     info = detect_platform()
     perms = check_permissions()
@@ -1060,6 +1124,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.demo_cli:
         return demo_cli()
 
+    if args.demo_report:
+        return demo_report()
+
     if args.probe_metadata:
         return probe_metadata()
 
@@ -1082,7 +1149,12 @@ def main(argv: list[str] | None = None) -> int:
     if command == "alerts":
         return list_alerts(limit=args.limit, severity=args.alert_severity)
     if command == "report":
-        return print_report(limit=args.limit)
+        return print_report(
+            limit=args.limit,
+            export=args.export_report,
+            fmt=args.report_format,
+            output_dir=args.output_dir,
+        )
     if command == "trust":
         device_id = trust_device_id(args)
         if not device_id:
@@ -1098,8 +1170,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"{__app_name__} v{__version__}")
     print(f"Platform: {info.display_name}")
-    print("Phase 12: CLI subcommands. Try: python main.py status")
-    print("Also: monitor, devices, events, alerts, report, trust ID, untrust ID")
+    print("Phase 13: local reports. Try: python main.py report --export")
+    print("Also: status, monitor, devices, events, alerts, trust ID, untrust ID")
     print("Legacy flags such as --status and --monitor still work.")
     return 0 if perms.can_persist else 1
 

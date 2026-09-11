@@ -10,9 +10,9 @@ This project is intended for:
 - endpoint security fundamentals
 - Windows-focused USB event monitoring
 
-**Current status:** Phase 12 — argparse CLI subcommands (`monitor`,
-`devices`, `events`, `alerts`, `report`, `trust`, `untrust`, `status`).
-Legacy flags such as `--status` and `--monitor` remain as aliases.
+**Current status:** Phase 13 — local JSON, CSV, and human-readable
+report export under `data/reports/`. CLI subcommands from Phase 12
+remain, including `report --export`.
 
 ## Overview
 
@@ -45,10 +45,10 @@ Implemented:
 - Local session alerts with fingerprint deduplication and cooldown
 - Local JSON storage (`events.json`, `alerts.json`, `devices.json`)
 - CLI subcommands to list inventory, events, and alerts, plus a console summary
+- Local report export (JSON, CSV, and human-readable text under `data/reports/`)
 
 Planned:
 
-- File reports (JSON, CSV, and a fuller human-readable export)
 - Unit tests with a mocked event source
 
 ## Privacy
@@ -68,7 +68,7 @@ Planned local paths:
 - `data/events/` — event records (`events.json`)
 - `data/inventory/` — observed devices (`devices.json`)
 - `data/alerts/` — emitted alerts (`alerts.json`)
-- `data/reports/` — exported reports (later)
+- `data/reports/` — exported reports (`usb-report-*.json`, `*.csv`, `*.txt`)
 - `logs/usb_monitor.log` — application log
 
 Serial numbers and similar identifiers are treated as sensitive local
@@ -121,12 +121,16 @@ python main.py events --limit 20
 python main.py events --type CONNECT
 python main.py alerts --severity HIGH
 python main.py report
+python main.py report --export
+python main.py report --export --format json
+python main.py report --limit 0 --export --output-dir data/reports
 python main.py trust DEVICE_ID
 python main.py untrust DEVICE_ID
 python main.py monitor --timeout 20
 python main.py --monitor --timeout 20
 python main.py --demo-models
 python main.py --demo-cli
+python main.py --demo-report
 python main.py --probe-source
 python main.py --listen-source --timeout 20
 python main.py --demo-normalize
@@ -155,7 +159,9 @@ Windows Event Source
         ↓
   Alert Manager
      ↓       ↓
-Event Store  CLI / (later) GUI
+Event Store  Report Export (JSON / CSV / text)
+                 ↓
+                CLI
 ```
 
 Platform-specific monitoring is kept separate from analysis, storage,
