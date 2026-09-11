@@ -1,12 +1,11 @@
 """USB Security Monitor entry point.
 
-Phase 11 persists events.json, alerts.json, and devices.json locally.
-Files stay on this machine; the tool still does not send telemetry.
+Phase 12 exposes argparse subcommands for monitor, inventory, events,
+alerts, and a local console summary. Legacy flags remain as aliases.
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 import sys
 import tempfile
@@ -15,6 +14,17 @@ from datetime import timedelta
 from pathlib import Path
 
 from usb_monitor import __app_name__, __version__
+from usb_monitor.cli import (
+    demo_cli,
+    list_alerts,
+    list_events,
+    monitor_timeout,
+    parse_args,
+    print_report,
+    resolve_command,
+    trust_device_id,
+    untrust_device_id,
+)
 from usb_monitor.alerts import AlertManager, format_alert
 from usb_monitor.analysis import Analyzer
 from usb_monitor.analysis.risk_engine import RiskAssessment
@@ -63,127 +73,6 @@ from usb_monitor.utils.platform import (
 from usb_monitor.utils.time import utc_now
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Parse command-line arguments for the current phase skeleton."""
-    parser = argparse.ArgumentParser(
-        prog="usb-security-monitor",
-        description=(
-            "Defensive endpoint-security tool that monitors USB and "
-            "removable-storage activity on the local computer you are "
-            "authorized to administer."
-        ),
-        epilog=(
-            "This tool does not exploit devices, execute USB contents, "
-            "or send data off the local machine."
-        ),
-    )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"{__app_name__} {__version__}",
-    )
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help="Enable debug logging on the console.",
-    )
-    parser.add_argument(
-        "-q",
-        "--quiet",
-        action="store_true",
-        help="Show warnings and errors only on the console.",
-    )
-    parser.add_argument(
-        "--demo-models",
-        action="store_true",
-        help="Print sample Device, USBEvent, and Alert JSON (no USB access).",
-    )
-    parser.add_argument(
-        "--status",
-        action="store_true",
-        help="Show platform, permission, and monitoring-capability status.",
-    )
-    parser.add_argument(
-        "--probe-source",
-        action="store_true",
-        help="Start and stop the Windows event source without waiting for USB devices.",
-    )
-    parser.add_argument(
-        "--listen-source",
-        action="store_true",
-        help="Listen for raw WM_DEVICECHANGE events (does not execute USB files).",
-    )
-    parser.add_argument(
-        "--timeout",
-        type=float,
-        default=15.0,
-        metavar="SECONDS",
-        help="Listen duration for --listen-source and --monitor (default: 15).",
-    )
-    parser.add_argument(
-        "--monitor",
-        action="store_true",
-        help="Show coalesced CONNECT/DISCONNECT events (does not execute USB files).",
-    )
-    parser.add_argument(
-        "--demo-normalize",
-        action="store_true",
-        help="Run sample raw-event coalescing without USB hardware.",
-    )
-    parser.add_argument(
-        "--demo-metadata",
-        action="store_true",
-        help="Run sample metadata merge without USB hardware.",
-    )
-    parser.add_argument(
-        "--probe-metadata",
-        action="store_true",
-        help="Inspect currently mounted removable volumes (does not open USB files).",
-    )
-    parser.add_argument(
-        "--demo-inventory",
-        action="store_true",
-        help="Run first-seen / known / trusted inventory scenarios without USB hardware.",
-    )
-    parser.add_argument(
-        "--demo-risk",
-        action="store_true",
-        help="Run rule-based risk scoring scenarios without USB hardware.",
-    )
-    parser.add_argument(
-        "--demo-anomaly",
-        action="store_true",
-        help="Run reconnect/new-device window scenarios without USB hardware.",
-    )
-    parser.add_argument(
-        "--demo-alerts",
-        action="store_true",
-        help="Run alert generation, dedup, and cooldown scenarios without USB hardware.",
-    )
-    parser.add_argument(
-        "--demo-storage",
-        action="store_true",
-        help="Round-trip events.json / alerts.json / devices.json without USB hardware.",
-    )
-    parser.add_argument(
-        "--devices",
-        action="store_true",
-        help="List locally observed devices from inventory.",
-    )
-    parser.add_argument(
-        "--trust",
-        metavar="DEVICE_ID",
-        help="Mark a known device as trusted (does not hide future events).",
-    )
-    parser.add_argument(
-        "--untrust",
-        metavar="DEVICE_ID",
-        help="Remove trusted status from a known device.",
-    )
-    return parser.parse_args(argv)
-
-
 def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
     """Build a human-readable local status report. No device data included."""
     live = "supported (not started yet)" if info.live_monitoring_supported else "not supported"
@@ -215,6 +104,7 @@ def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
         f"  Risk analyzer: rule-based heuristic (not a malware verdict)",
         f"  Anomaly windows: rapid reconnect / repeated events / multiple new devices",
         f"  Alert manager: in-memory cooldown; emitted alerts persist locally",
+        f"  CLI: subcommands (legacy flags such as --status still work)",
         f"  Storage: {storage_line} (local only, no telemetry)",
         f"  PowerShell on PATH: {'Yes' if info.powershell_available else 'No'}",
         "",
@@ -1117,7 +1007,7 @@ def change_trust(device_id: str, trusted: bool) -> int:
         device = inventory.set_trusted(device_id, trusted)
     except DeviceNotFoundError:
         print(f"Device not in inventory: {device_id}")
-        print("Observe it with --monitor first, then trust/untrust.")
+        print("Observe it with monitor (or --monitor) first, then trust/untrust.")
         return 1
     state = "trusted" if device.trusted else "untrusted"
     print(f"{device.safe_device_id} is now {state}.")
@@ -1132,7 +1022,7 @@ def main(argv: list[str] | None = None) -> int:
     logger = get_logger("main")
 
     logger.info("%s %s started", __app_name__, __version__)
-    logger.info("Phase 11: local JSON event, alert, and inventory storage")
+    logger.info("Phase 12: CLI subcommands with legacy flag aliases")
 
     info = detect_platform()
     perms = check_permissions()
@@ -1141,10 +1031,6 @@ def main(argv: list[str] | None = None) -> int:
         logger.warning("Live USB monitoring is not supported on this platform")
     if not perms.can_persist:
         logger.error("Local data or log directories are not writable")
-
-    if args.status:
-        print(format_status(info, perms))
-        return 0 if perms.can_persist else 1
 
     if args.demo_models:
         demo_models()
@@ -1171,14 +1057,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.demo_storage:
         return demo_storage()
 
-    if args.devices:
-        return list_inventory()
-
-    if args.trust:
-        return change_trust(args.trust, True)
-
-    if args.untrust:
-        return change_trust(args.untrust, False)
+    if args.demo_cli:
+        return demo_cli()
 
     if args.probe_metadata:
         return probe_metadata()
@@ -1189,13 +1069,38 @@ def main(argv: list[str] | None = None) -> int:
     if args.listen_source:
         return listen_event_source(args.timeout)
 
-    if args.monitor:
-        return run_monitor(args.timeout)
+    command = resolve_command(args)
+    if command == "status":
+        print(format_status(info, perms))
+        return 0 if perms.can_persist else 1
+    if command == "monitor":
+        return run_monitor(monitor_timeout(args))
+    if command == "devices":
+        return list_inventory()
+    if command == "events":
+        return list_events(limit=args.limit, event_type=args.event_type)
+    if command == "alerts":
+        return list_alerts(limit=args.limit, severity=args.alert_severity)
+    if command == "report":
+        return print_report(limit=args.limit)
+    if command == "trust":
+        device_id = trust_device_id(args)
+        if not device_id:
+            print("Missing device identity. Usage: python main.py trust DEVICE_ID")
+            return 2
+        return change_trust(device_id, True)
+    if command == "untrust":
+        device_id = untrust_device_id(args)
+        if not device_id:
+            print("Missing device identity. Usage: python main.py untrust DEVICE_ID")
+            return 2
+        return change_trust(device_id, False)
 
     print(f"{__app_name__} v{__version__}")
     print(f"Platform: {info.display_name}")
-    print("Phase 11 complete: events, alerts, and devices persist as local JSON.")
-    print("Run --demo-storage (no USB) or --monitor to write data/events and data/alerts.")
+    print("Phase 12: CLI subcommands. Try: python main.py status")
+    print("Also: monitor, devices, events, alerts, report, trust ID, untrust ID")
+    print("Legacy flags such as --status and --monitor still work.")
     return 0 if perms.can_persist else 1
 
 
