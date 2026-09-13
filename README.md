@@ -10,8 +10,9 @@ This project is intended for:
 - endpoint security fundamentals
 - Windows-focused USB event monitoring
 
-**Current status:** Phase 15 — live watcher reliability (non-daemon
-Windows thread, isolated pipeline failures, context-manager shutdown).
+**Current status:** Phase 16 — optional local tkinter operator window
+(`python main.py gui`). Live watching, inventory, alerts, trust, and
+report export stay on this computer.
 
 ## Overview
 
@@ -47,10 +48,11 @@ Implemented:
 - Local report export (JSON, CSV, and human-readable text under `data/reports/`)
 - Unit tests with a mocked event source (`pytest`, no USB hardware)
 - Threading, exception isolation, and graceful shutdown for the live watcher
+- Optional local GUI (tkinter) for operators who prefer a window over the CLI
 
 Planned:
 
-- Optional local GUI for operators who prefer a window over the CLI
+- Project documentation pass and v1.0 packaging
 
 ## Privacy
 
@@ -127,6 +129,9 @@ python main.py report
 python main.py report --export
 python main.py report --export --format json
 python main.py report --limit 0 --export --output-dir data/reports
+python main.py gui
+python main.py --gui
+python main.py --demo-gui
 python main.py trust DEVICE_ID
 python main.py untrust DEVICE_ID
 python main.py monitor --timeout 20
@@ -135,6 +140,7 @@ python main.py --demo-models
 python main.py --demo-cli
 python main.py --demo-report
 python main.py --demo-reliability
+python main.py --demo-gui
 python main.py --probe-source
 python main.py --listen-source --timeout 20
 python main.py --demo-normalize
@@ -175,7 +181,7 @@ Windows Event Source  (or MockEventSource in tests)
      ↓       ↓
 Event Store  Report Export (JSON / CSV / text)
                  ↓
-                CLI
+            CLI / local GUI
 ```
 
 Platform-specific monitoring is kept separate from analysis, storage,

@@ -71,6 +71,10 @@ class USBMonitor:
     def mechanism(self) -> str:
         return self._source.mechanism
 
+    @property
+    def inventory(self) -> DeviceInventory | None:
+        return self._inventory
+
     def start(self) -> None:
         self._source.start()
         self._log.info(
@@ -100,34 +104,39 @@ class USBMonitor:
 
     def run(
         self,
-        timeout: float,
+        timeout: float | None = None,
         *,
         on_event: Callable[[USBEvent], None] | None = None,
         stop_when: Callable[[], bool] | None = None,
     ) -> int:
-        """Poll until ``timeout`` seconds elapse. Isolates per-event failures.
+        """Poll until timeout elapses, or until ``stop_when`` if timeout is None.
 
         Starts the source if it is idle. When this method started the source,
         it also stops it. A surrounding context manager still owns shutdown
         if the source was already running. KeyboardInterrupt is not swallowed.
+        ``timeout=None`` is for the GUI worker: pass ``stop_when``.
         """
-        if timeout < 0:
+        if timeout is not None and timeout < 0:
             raise ValueError("timeout must be >= 0")
         started_here = False
         if not self.is_running:
             self.start()
             started_here = True
         seen = 0
-        deadline = time.monotonic() + timeout
+        deadline = None if timeout is None else time.monotonic() + timeout
         try:
             while True:
                 if stop_when is not None and stop_when():
                     break
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    break
+                if deadline is None:
+                    wait = _POLL_SLICE
+                else:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    wait = min(_POLL_SLICE, remaining)
                 try:
-                    event = self.poll(timeout=min(_POLL_SLICE, remaining))
+                    event = self.poll(timeout=wait)
                 except Exception:
                     self._log.exception("Poll failed; continuing")
                     continue
