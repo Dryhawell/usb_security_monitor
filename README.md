@@ -10,8 +10,9 @@ This project is intended for:
 - endpoint security fundamentals
 - Windows-focused USB event monitoring
 
-**Current status:** Phase 11 — local JSON storage for events, alerts,
-and inventory. Reports and the full CLI are not implemented yet.
+**Current status:** Phase 12 — argparse CLI subcommands (`monitor`,
+`devices`, `events`, `alerts`, `report`, `trust`, `untrust`, `status`).
+Legacy flags such as `--status` and `--monitor` remain as aliases.
 
 ## Overview
 
@@ -43,10 +44,11 @@ Implemented:
 - Sliding-window anomaly signals (rapid reconnect, event flaps, new-device bursts)
 - Local session alerts with fingerprint deduplication and cooldown
 - Local JSON storage (`events.json`, `alerts.json`, `devices.json`)
+- CLI subcommands to list inventory, events, and alerts, plus a console summary
 
 Planned:
 
-- CLI reports (human-readable, JSON, CSV)
+- File reports (JSON, CSV, and a fuller human-readable export)
 - Unit tests with a mocked event source
 
 ## Privacy
@@ -112,8 +114,19 @@ python main.py --help
 python main.py
 python main.py --version
 python main.py --verbose
+python main.py status
 python main.py --status
+python main.py devices
+python main.py events --limit 20
+python main.py events --type CONNECT
+python main.py alerts --severity HIGH
+python main.py report
+python main.py trust DEVICE_ID
+python main.py untrust DEVICE_ID
+python main.py monitor --timeout 20
+python main.py --monitor --timeout 20
 python main.py --demo-models
+python main.py --demo-cli
 python main.py --probe-source
 python main.py --listen-source --timeout 20
 python main.py --demo-normalize
@@ -127,7 +140,6 @@ python main.py --devices
 python main.py --trust DEVICE_ID
 python main.py --untrust DEVICE_ID
 python main.py --probe-metadata
-python main.py --monitor --timeout 20
 ```
 
 ## Architecture (target)
