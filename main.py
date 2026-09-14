@@ -1,7 +1,7 @@
 """USB Security Monitor entry point.
 
-Phase 16 adds an optional local tkinter operator window. Live watching
-still uses the same USBMonitor pipeline; the GUI does not execute USB files.
+Phase 17 is the documentation pass. Live watching, CLI, reports, and
+the local GUI remain the operator surface.
 """
 
 from __future__ import annotations
@@ -1193,7 +1193,7 @@ def main(argv: list[str] | None = None) -> int:
     logger = get_logger("main")
 
     logger.info("%s %s started", __app_name__, __version__)
-    logger.info("Phase 16: local tkinter operator window")
+    logger.info("Phase 17: documentation pass")
 
     info = detect_platform()
     perms = check_permissions()
@@ -1287,7 +1287,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"{__app_name__} v{__version__}")
     print(f"Platform: {info.display_name}")
-    print("Phase 16: local GUI. Try: python main.py gui")
+    print("Phase 17: docs. See README.md and docs/")
     print("Also: status, monitor, devices, events, alerts, report, trust ID, untrust ID")
     print("Legacy flags such as --status and --monitor still work.")
     return 0 if perms.can_persist else 1

@@ -10,9 +10,9 @@ This project is intended for:
 - endpoint security fundamentals
 - Windows-focused USB event monitoring
 
-**Current status:** Phase 16 — optional local tkinter operator window
-(`python main.py gui`). Live watching, inventory, alerts, trust, and
-report export stay on this computer.
+**Current status:** Phase 17 — documentation pass. Features through the
+local operator GUI are implemented. Heuristic scores are **not** a
+malware verdict.
 
 ## Overview
 
@@ -24,6 +24,11 @@ It does **not** determine whether a device is actually malicious. It does
 not scan firmware, execute files from USB media, or replace antivirus or
 EDR software.
 
+Further reading:
+
+- [Architecture](docs/ARCHITECTURE.md) — pipeline, identity, storage
+- [Scoring and alerts](docs/SCORING.md) — rules, bands, cooldown
+
 ## Why This Project Exists
 
 Removable media remains a common path for data loss and malware introduction.
@@ -32,9 +37,7 @@ when they appeared, and whether they were seen before. This project teaches
 that visibility layer — inventory, first-seen detection, and simple
 anomaly signals — without crossing into offensive USB techniques.
 
-## Features (current vs planned)
-
-Implemented:
+## Features
 
 - Detect USB/removable storage connect and disconnect events
 - Collect available device metadata (VID/PID, product, drive letter, …)
@@ -44,7 +47,7 @@ Implemented:
 - Sliding-window anomaly signals (rapid reconnect, event flaps, new-device bursts)
 - Local session alerts with fingerprint deduplication and cooldown
 - Local JSON storage (`events.json`, `alerts.json`, `devices.json`)
-- CLI subcommands to list inventory, events, and alerts, plus a console summary
+- CLI subcommands to list inventory, events, and alerts
 - Local report export (JSON, CSV, and human-readable text under `data/reports/`)
 - Unit tests with a mocked event source (`pytest`, no USB hardware)
 - Threading, exception isolation, and graceful shutdown for the live watcher
@@ -52,7 +55,7 @@ Implemented:
 
 Planned:
 
-- Project documentation pass and v1.0 packaging
+- Project review and v1.0 packaging
 
 ## Privacy
 
@@ -66,7 +69,7 @@ It will:
 - never transmit device information
 - never collect unrelated personal data
 
-Planned local paths:
+Local paths:
 
 - `data/events/` — event records (`events.json`)
 - `data/inventory/` — observed devices (`devices.json`)
@@ -75,7 +78,9 @@ Planned local paths:
 - `logs/usb_monitor.log` — application log
 
 Serial numbers and similar identifiers are treated as sensitive local
-device identifiers and are masked in default log output.
+device identifiers. Console, logs, and the GUI mask them. Local JSON
+stores and JSON/CSV report files keep unmasked values for forensics on
+this machine only.
 
 ## Responsible Use
 
@@ -97,9 +102,13 @@ It does not:
 - guarantee device authenticity
 - replace endpoint security software
 
+USB hard disks often appear to Windows as `DRIVE_FIXED`. Missing serials
+are common on honest devices. First-seen plus a missing serial must not
+be treated as CRITICAL.
+
 ## Installation
 
-Python 3.12 or newer is required.
+Python 3.11 or newer is required (developed on Windows 11 / Python 3.11.9).
 
 ```powershell
 cd usb_security_monitor
@@ -110,50 +119,50 @@ pip install -r requirements-dev.txt
 ```
 
 The application has no third-party runtime dependencies. `pytest` is
-test-only (Phase 14).
+test-only. The GUI uses stdlib `tkinter`.
 
 ## Usage
 
 ```powershell
 python main.py --help
-python main.py
 python main.py --version
-python main.py --verbose
 python main.py status
-python main.py --status
+python main.py monitor --timeout 20
+python main.py gui
 python main.py devices
-python main.py events --limit 20
-python main.py events --type CONNECT
+python main.py events --limit 20 --type CONNECT
 python main.py alerts --severity HIGH
 python main.py report
 python main.py report --export
 python main.py report --export --format json
-python main.py report --limit 0 --export --output-dir data/reports
-python main.py gui
-python main.py --gui
-python main.py --demo-gui
 python main.py trust DEVICE_ID
 python main.py untrust DEVICE_ID
-python main.py monitor --timeout 20
-python main.py --monitor --timeout 20
-python main.py --demo-models
+```
+
+Legacy flags such as `--status`, `--monitor`, `--devices`, `--trust`,
+`--untrust`, and `--gui` still work.
+
+Live monitor and GUI do **not** open or execute files on USB media.
+Ctrl+C (CLI) or Stop / close window (GUI) shuts the watcher down.
+
+Offline checks (no USB hardware):
+
+```powershell
 python main.py --demo-cli
-python main.py --demo-report
-python main.py --demo-reliability
 python main.py --demo-gui
-python main.py --probe-source
-python main.py --listen-source --timeout 20
-python main.py --demo-normalize
-python main.py --demo-metadata
-python main.py --demo-inventory
+python main.py --demo-reliability
+python main.py --demo-report
+python main.py --demo-storage
+python main.py --demo-alerts
 python main.py --demo-risk
 python main.py --demo-anomaly
-python main.py --demo-alerts
-python main.py --demo-storage
-python main.py --devices
-python main.py --trust DEVICE_ID
-python main.py --untrust DEVICE_ID
+python main.py --demo-inventory
+python main.py --demo-normalize
+python main.py --demo-metadata
+python main.py --demo-models
+python main.py --probe-source
 python main.py --probe-metadata
+python main.py --listen-source --timeout 20
 ```
 
 ## Tests
@@ -166,7 +175,7 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-## Architecture (target)
+## Architecture
 
 ```
 Windows Event Source  (or MockEventSource in tests)
@@ -185,7 +194,7 @@ Event Store  Report Export (JSON / CSV / text)
 ```
 
 Platform-specific monitoring is kept separate from analysis, storage,
-and presentation. Those layers are added in later phases.
+and presentation. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## License
 
