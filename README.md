@@ -10,9 +10,9 @@ This project is intended for:
 - endpoint security fundamentals
 - Windows-focused USB event monitoring
 
-**Current status:** Phase 17 — documentation pass. Features through the
+**Current status:** Phase 18 — project review. Features through the
 local operator GUI are implemented. Heuristic scores are **not** a
-malware verdict.
+malware verdict. See [docs/REVIEW.md](docs/REVIEW.md).
 
 ## Overview
 
@@ -28,6 +28,7 @@ Further reading:
 
 - [Architecture](docs/ARCHITECTURE.md) — pipeline, identity, storage
 - [Scoring and alerts](docs/SCORING.md) — rules, bands, cooldown
+- [Review](docs/REVIEW.md) — strengths, limits, SOC caveats, test gaps
 
 ## Why This Project Exists
 
@@ -55,7 +56,7 @@ anomaly signals — without crossing into offensive USB techniques.
 
 Planned:
 
-- Project review and v1.0 packaging
+- v1.0 packaging (version stamp after stacked branches merge)
 
 ## Privacy
 

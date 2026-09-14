@@ -81,3 +81,5 @@ CLI subcommands: `status`, `monitor`, `devices`, `events`, `alerts`,
 `report` prints a masked summary. `report --export` writes files under
 `data/reports/`. The GUI shows the same records and can export without
 opening USB media.
+
+Limitations and SOC caveats: [REVIEW.md](REVIEW.md).
