@@ -53,11 +53,11 @@ These are by design, not bugs:
 | HID / composite devices | A BadUSB keyboard may show as a USB interface with no volume. Absence of a drive letter is not proof of malice or safety. |
 | Same VID:PID in 0.5s | Coalescing matches action + VID/PID (+ drive letter). Two sticks that share a VID:PID in the quiet window can merge; the first instance/serial wins. |
 | Dropped raw events | The Windows source queue is bounded (1024). When full, a raw event is logged and dropped. |
-| Unbounded JSON history | `events.json` is append-only with no rotation. Long-lived hosts will grow the file. |
+| Capped JSON history | `events.json` keeps the newest 5000 records; `alerts.json` keeps 2000. Older rows are dropped, not archived. Inventory stays uncapped. |
 | Local plaintext identifiers | `devices.json` / `events.json` / JSON-CSV reports store unmasked serials. Anyone with the user profile can read them. |
 | Trust is an operator flag | `TRUSTED_DEVICE` (−10) lowers the heuristic. It is not an allowlist and not a safety guarantee. |
 | GUI worker vs Windows thread | Tk is main-thread; monitor worker is daemon; Windows pump is non-daemon. A hung `GetMessageW` can delay process exit after Stop. |
-| Stacked PRs vs `main` | Feature work through v1.0.0 lives on stacked branches. `origin/main` still ends at local JSON storage until those PRs merge. |
+| Stacked PRs vs `main` | v1.0.0 is on `main`. Later hardening lands as ordinary PRs against `main`. |
 | No remote SOC integration | There is no syslog/SIEM shipper. That is correct for “local only”; an analyst must copy reports by hand. |
 
 Do not treat HIGH/CRITICAL or `SUSPICIOUS_DEVICE` as “this stick is
@@ -65,7 +65,7 @@ malware.” They mean stacked observed characteristics.
 
 ## Test coverage
 
-`python -m pytest` currently has **27** tests. They are hardware-free
+`python -m pytest` currently has **31** tests. They are hardware-free
 and that is appropriate.
 
 Covered well:
@@ -76,6 +76,7 @@ Covered well:
 - First-seen + missing serial is not CRITICAL
 - Rapid reconnect, alert cooldown, severity escalation
 - Corrupt JSON recovery, report mask vs JSON serial
+- Event/alert store newest-record cap
 - Poll/metadata/store isolation, idempotent stop
 - GUI row masking and window construct/destroy
 
@@ -99,13 +100,13 @@ Gaps (honest, not a failing grade):
 
 - `__version__` is `1.0.0`; README status marks the planned scope complete.
 - Malware-disclaimer language remains on CLI, GUI, reports, and README.
-- Stacked PRs are **not** merged into `main` in this stamp (operator merge later).
-- Event-store rotation and coalescing-key rewrite stay deferred.
+- Stacked PRs later merged to `main` (v1.0.0).
+- Event/alert store record cap is post-1.0 hardening (newest 5000
+  events / 2000 alerts). Coalescing-key rewrite stays deferred.
 
 ### Later (not v1.0 blockers)
 
 - Split `main.py` demos out of the entry point.
-- Event-store rotation or size cap.
 - Optional coalescing key that includes instance/serial when present.
 - Optional local encryption or tighter ACLs for JSON (still no
   telemetry).

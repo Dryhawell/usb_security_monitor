@@ -1,7 +1,8 @@
-"""Append-only local alert history (alerts.json).
+"""Bounded local alert history (alerts.json).
 
 Suppressed (cooldown) warnings are not stored. Documents stay local;
-serials may be present in device_id like inventory records.
+serials may be present in device_id like inventory records. Oldest
+alerts are dropped when the record cap is exceeded.
 """
 
 from __future__ import annotations
@@ -11,25 +12,40 @@ from pathlib import Path
 
 from usb_monitor.models.alert import Alert
 from usb_monitor.storage.atomic import read_json_file, write_json_atomic
+from usb_monitor.storage.bounded import keep_newest
 from usb_monitor.utils.logger import get_logger
 from usb_monitor.utils.permissions import DEFAULT_DATA_DIR
 
 DEFAULT_ALERTS_PATH = DEFAULT_DATA_DIR / "alerts" / "alerts.json"
+DEFAULT_MAX_ALERTS = 2000
 _SCHEMA_VERSION = 1
 
 
 class AlertStore:
     """In-memory alert list with optional JSON persistence."""
 
-    def __init__(self, path: Path | None = DEFAULT_ALERTS_PATH) -> None:
+    def __init__(
+        self,
+        path: Path | None = DEFAULT_ALERTS_PATH,
+        *,
+        max_records: int = DEFAULT_MAX_ALERTS,
+    ) -> None:
+        if max_records < 1:
+            raise ValueError("max_records must be >= 1")
         self._path = path
+        self._max_records = max_records
         self._alerts: list[Alert] = []
         self._lock = threading.Lock()
         self._log = get_logger("storage.alerts")
 
     @classmethod
-    def load(cls, path: Path | None = DEFAULT_ALERTS_PATH) -> AlertStore:
-        store = cls(path=path)
+    def load(
+        cls,
+        path: Path | None = DEFAULT_ALERTS_PATH,
+        *,
+        max_records: int = DEFAULT_MAX_ALERTS,
+    ) -> AlertStore:
+        store = cls(path=path, max_records=max_records)
         store.reload()
         return store
 
@@ -57,23 +73,42 @@ class AlertStore:
                 continue
             seen.add(alert.alert_id)
             loaded.append(alert)
+        loaded, dropped = keep_newest(loaded, self._max_records)
         with self._lock:
             self._alerts = loaded
         self._log.info("Loaded %s alert(s) from local store", len(loaded))
+        if dropped:
+            self._log.info(
+                "Dropped %s oldest alert(s) to stay within %s records",
+                dropped,
+                self._max_records,
+            )
+            self.save()
 
     def append(self, alert: Alert) -> None:
+        dropped = 0
         with self._lock:
             if any(item.alert_id == alert.alert_id for item in self._alerts):
                 return
             self._alerts.append(alert)
+            self._alerts, dropped = keep_newest(self._alerts, self._max_records)
         self.save()
+        if dropped:
+            self._log.info(
+                "Dropped %s oldest alert(s) to stay within %s records",
+                dropped,
+                self._max_records,
+            )
 
     def list_alerts(self) -> list[Alert]:
         with self._lock:
             return list(self._alerts)
 
     def stats(self) -> dict[str, int]:
-        return {"total": len(self.list_alerts())}
+        return {
+            "total": len(self.list_alerts()),
+            "max_records": self._max_records,
+        }
 
     def save(self) -> None:
         if self._path is None:

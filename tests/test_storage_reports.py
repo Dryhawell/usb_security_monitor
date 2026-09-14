@@ -2,11 +2,13 @@
 
 import json
 
+import pytest
+
 from usb_monitor.models.enums import EventType, Severity
 from usb_monitor.models.event import USBEvent
 from usb_monitor.models.alert import Alert
 from usb_monitor.reports import build_local_report, export_report
-from usb_monitor.storage import AlertStore, EventStore, read_json_file
+from usb_monitor.storage import AlertStore, EventStore, keep_newest, read_json_file
 from usb_monitor.inventory import DeviceInventory
 from usb_monitor.utils.time import utc_now
 
@@ -76,6 +78,75 @@ def test_report_export_masks_text_keeps_json_serial(tmp_path) -> None:
     assert "RPT1234" not in text
     assert "********1234" in text
     assert "serial_number" in names[f"{report_stem_from(written)}-devices.csv"].read_text(encoding="utf-8")
+
+
+def test_keep_newest_drops_oldest() -> None:
+    assert keep_newest(["a", "b", "c"], 2) == (["b", "c"], 1)
+    assert keep_newest(["a"], 5) == (["a"], 0)
+    with pytest.raises(ValueError, match="max_records"):
+        keep_newest(["a"], 0)
+
+
+def test_event_store_keeps_newest_within_cap(tmp_path) -> None:
+    path = tmp_path / "events.json"
+    store = EventStore(path, max_records=3)
+    ids: list[str] = []
+    for index in range(5):
+        serial = f"CAP{index:04d}"
+        event = USBEvent(
+            event_type=EventType.CONNECT,
+            device_id=f"0781:5581:{serial}",
+            serial_number=serial,
+            source="mock",
+        )
+        ids.append(event.event_id)
+        store.append(event)
+    kept = [event.event_id for event in store.list_events()]
+    assert kept == ids[-3:]
+    assert store.stats()["max_records"] == 3
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert [row["event_id"] for row in payload["events"]] == ids[-3:]
+    assert payload["events"][-1]["serial_number"] == "CAP0004"
+    loaded = EventStore.load(path, max_records=3)
+    assert [event.event_id for event in loaded.list_events()] == ids[-3:]
+
+
+def test_event_store_trims_oversized_file_on_load(tmp_path) -> None:
+    path = tmp_path / "events.json"
+    store = EventStore(path, max_records=10)
+    ids: list[str] = []
+    for index in range(4):
+        event = USBEvent(
+            event_type=EventType.CONNECT,
+            device_id=f"0781:5581:OLD{index}",
+            serial_number=f"OLD{index}",
+            source="mock",
+        )
+        ids.append(event.event_id)
+        store.append(event)
+    trimmed = EventStore.load(path, max_records=2)
+    assert [event.event_id for event in trimmed.list_events()] == ids[-2:]
+    rewritten = json.loads(path.read_text(encoding="utf-8"))
+    assert [row["event_id"] for row in rewritten["events"]] == ids[-2:]
+
+
+def test_alert_store_keeps_newest_within_cap(tmp_path) -> None:
+    path = tmp_path / "alerts.json"
+    store = AlertStore(path, max_records=2)
+    ids: list[str] = []
+    for index in range(4):
+        alert = Alert(
+            severity=Severity.INFO,
+            title=f"Alert {index}",
+            description="Local cap check",
+            device_id=f"0781:5581:ALRT{index}",
+        )
+        ids.append(alert.alert_id)
+        store.append(alert)
+    assert [alert.alert_id for alert in store.list_alerts()] == ids[-2:]
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert [row["alert_id"] for row in payload["alerts"]] == ids[-2:]
+    assert payload["alerts"][-1]["device_id"] == "0781:5581:ALRT3"
 
 
 def report_stem_from(written) -> str:
