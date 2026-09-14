@@ -10,9 +10,8 @@ This project is intended for:
 - endpoint security fundamentals
 - Windows-focused USB event monitoring
 
-**Current status:** Phase 14 — pytest suite with a mocked event source.
-No USB hardware is required for tests. JSON/CSV/text reports and CLI
-subcommands from earlier phases remain.
+**Current status:** Phase 15 — live watcher reliability (non-daemon
+Windows thread, isolated pipeline failures, context-manager shutdown).
 
 ## Overview
 
@@ -47,10 +46,11 @@ Implemented:
 - CLI subcommands to list inventory, events, and alerts, plus a console summary
 - Local report export (JSON, CSV, and human-readable text under `data/reports/`)
 - Unit tests with a mocked event source (`pytest`, no USB hardware)
+- Threading, exception isolation, and graceful shutdown for the live watcher
 
 Planned:
 
-- Threading, exception isolation, and graceful shutdown for the live watcher
+- Optional local GUI for operators who prefer a window over the CLI
 
 ## Privacy
 
@@ -134,6 +134,7 @@ python main.py --monitor --timeout 20
 python main.py --demo-models
 python main.py --demo-cli
 python main.py --demo-report
+python main.py --demo-reliability
 python main.py --probe-source
 python main.py --listen-source --timeout 20
 python main.py --demo-normalize

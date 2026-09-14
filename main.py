@@ -1,7 +1,7 @@
 """USB Security Monitor entry point.
 
-Phase 13 adds local JSON, CSV, and human-readable report files.
-CLI subcommands and legacy flags remain the operator surface.
+Phase 15 hardens the live watcher: context-manager shutdown, isolated
+pipeline failures, and idempotent stop. CLI subcommands remain.
 """
 
 from __future__ import annotations
@@ -45,6 +45,7 @@ from usb_monitor.monitoring import (
     EventNormalizer,
     EventSource,
     EventSourceUnavailableError,
+    MockEventSource,
     NullMetadataCollector,
     RawAction,
     RawDeviceEvent,
@@ -99,7 +100,7 @@ def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
         f"  Python: {info.python_version}",
         f"  Live USB monitoring: {live}",
         f"  Event source: {source_label}",
-        f"  USBMonitor: ready (coalesced CONNECT/DISCONNECT)",
+        f"  USBMonitor: ready (context manager, isolated failures, graceful stop)",
         f"  Metadata: {'windows_setupapi' if WindowsEventSource.is_available() else 'none'}",
         f"  Inventory: {inventory_line}",
         f"  Risk analyzer: rule-based heuristic (not a malware verdict)",
@@ -399,33 +400,24 @@ def run_monitor(timeout: float) -> int:
     print("No files on the device will be opened or executed. Ctrl+C to stop.")
     print()
     try:
-        monitor = create_monitor()
-        monitor.start()
+        with create_monitor() as monitor:
+            def on_event(event: USBEvent) -> None:
+                print(format_live_event(event))
+                print()
+
+            seen = monitor.run(timeout, on_event=on_event)
+            stats = monitor.alerts.stats()
     except (UnsupportedPlatformError, EventSourceUnavailableError) as exc:
         print(f"USB monitor unavailable: {exc}")
         return 1
-    seen = 0
-    deadline = time.monotonic() + timeout
-    try:
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            event = monitor.poll(timeout=min(0.5, remaining))
-            if event is None:
-                continue
-            seen += 1
-            print(format_live_event(event))
-            print()
-    finally:
-        monitor.stop()
-        for event in monitor.drain():
-            seen += 1
-            print(format_live_event(event))
-            print()
+    except KeyboardInterrupt:
+        print("\nStopping monitor.")
+        return 130
     print(f"Logical USB events observed: {seen}")
-    stats = monitor.alerts.stats()
-    print(f"Alerts emitted: {stats.emitted}, suppressed: {stats.suppressed} (cooldown {stats.cooldown_seconds:.0f}s)")
+    print(
+        f"Alerts emitted: {stats.emitted}, suppressed: {stats.suppressed} "
+        f"(cooldown {stats.cooldown_seconds:.0f}s)"
+    )
     return 0
 
 
@@ -529,6 +521,34 @@ class _IdleEventSource(EventSource):
 
     def poll(self, timeout: float | None = None) -> RawDeviceEvent | None:
         return None
+
+
+class _BoomCollector(NullMetadataCollector):
+    """Metadata collector that always fails. Used by --demo-reliability."""
+
+    def collect(self, event):  # type: ignore[no-untyped-def]
+        raise OSError("metadata boom")
+
+
+class _BoomStore(EventStore):
+    """Event store that always fails to persist. Used by --demo-reliability."""
+
+    def append(self, event: USBEvent) -> None:
+        raise OSError("disk full")
+
+
+class _BoomSource(MockEventSource):
+    """Mock source whose first poll raises. Used by --demo-reliability."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._booms = 1
+
+    def poll(self, timeout: float | None = None) -> RawDeviceEvent | None:
+        if self._booms:
+            self._booms -= 1
+            raise OSError("poll boom")
+        return super().poll(timeout)
 
 
 def _feed_connect(monitor: USBMonitor, event: USBEvent) -> list[USBEvent]:
@@ -1052,6 +1072,51 @@ def demo_report() -> int:
         return 0 if ok else 1
 
 
+def demo_reliability() -> int:
+    """Isolate poll/metadata/store failures. No USB hardware."""
+    path = (
+        r"\\?\USB#VID_0781&PID_5581#REL1234#{a5dcbf10-6530-11d2-901f-00c04fb951ed}"
+    )
+    raw = RawDeviceEvent(
+        action=RawAction.CONNECT,
+        source="mock",
+        kind="usb",
+        vendor_id="0781",
+        product_id="5581",
+        device_path=path,
+    )
+    source = _BoomSource()
+    monitor = USBMonitor(
+        source,
+        normalizer=EventNormalizer(quiet_period=0, max_wait=0),
+        collector=_BoomCollector(),
+        inventory=DeviceInventory(path=None),
+        analyzer=Analyzer(),
+        event_store=_BoomStore(path=None),
+    )
+    with monitor:
+        polled = monitor.poll(timeout=0.05)
+        monitor.feed(raw)
+        events = monitor.drain()
+        monitor.stop()
+        monitor.stop()
+    types = [item.event_type for item in events]
+    ok = (
+        polled is None
+        and EventType.CONNECT in types
+        and source.is_running is False
+    )
+    print("Poll survived a source OSError: OK" if polled is None else "poll FAILED")
+    print(
+        "CONNECT still emitted after metadata/store failure: OK"
+        if EventType.CONNECT in types
+        else "emit FAILED"
+    )
+    print("stop() is idempotent: OK" if source.is_running is False else "stop FAILED")
+    print("Demo result: OK" if ok else "Demo result: FAILED")
+    return 0 if ok else 1
+
+
 def list_inventory() -> int:
     inventory = DeviceInventory.load()
     stats = inventory.stats()
@@ -1086,7 +1151,7 @@ def main(argv: list[str] | None = None) -> int:
     logger = get_logger("main")
 
     logger.info("%s %s started", __app_name__, __version__)
-    logger.info("Phase 14: pytest suite with mocked event source")
+    logger.info("Phase 15: threading, isolated failures, graceful shutdown")
 
     info = detect_platform()
     perms = check_permissions()
@@ -1126,6 +1191,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.demo_report:
         return demo_report()
+
+    if args.demo_reliability:
+        return demo_reliability()
 
     if args.probe_metadata:
         return probe_metadata()
@@ -1170,7 +1238,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"{__app_name__} v{__version__}")
     print(f"Platform: {info.display_name}")
-    print("Phase 14: tests. Try: python -m pytest")
+    print("Phase 15: reliability. Try: python main.py --demo-reliability")
     print("Also: status, monitor, devices, events, alerts, trust ID, untrust ID")
     print("Legacy flags such as --status and --monitor still work.")
     return 0 if perms.can_persist else 1

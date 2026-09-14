@@ -11,8 +11,10 @@ device is malicious.
 
 from __future__ import annotations
 
+import threading
 import time
 from collections import deque
+from collections.abc import Callable
 
 from usb_monitor.alerts import AlertManager, attach_decision
 from usb_monitor.analysis import Analyzer, apply_assessment, should_emit_suspicious
@@ -54,6 +56,7 @@ class USBMonitor:
         self._alerts = alerts if alerts is not None else AlertManager()
         self._event_store = event_store
         self._pending: deque[USBEvent] = deque()
+        self._lock = threading.Lock()
         self._log = get_logger("monitoring.usb")
 
     @property
@@ -80,14 +83,78 @@ class USBMonitor:
         try:
             for event in self._normalizer.flush_all():
                 self._queue_event(event)
-        finally:
+        except Exception:
+            self._log.exception("Failed while flushing coalesced events during stop")
+        try:
             self._source.stop(timeout=timeout)
-            self._log.info("USB monitor stopped")
+        except Exception:
+            self._log.exception("Event source stop failed")
+        self._log.info("USB monitor stopped")
+
+    def __enter__(self) -> USBMonitor:
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.stop()
+
+    def run(
+        self,
+        timeout: float,
+        *,
+        on_event: Callable[[USBEvent], None] | None = None,
+        stop_when: Callable[[], bool] | None = None,
+    ) -> int:
+        """Poll until ``timeout`` seconds elapse. Isolates per-event failures.
+
+        Starts the source if it is idle. When this method started the source,
+        it also stops it. A surrounding context manager still owns shutdown
+        if the source was already running. KeyboardInterrupt is not swallowed.
+        """
+        if timeout < 0:
+            raise ValueError("timeout must be >= 0")
+        started_here = False
+        if not self.is_running:
+            self.start()
+            started_here = True
+        seen = 0
+        deadline = time.monotonic() + timeout
+        try:
+            while True:
+                if stop_when is not None and stop_when():
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                try:
+                    event = self.poll(timeout=min(_POLL_SLICE, remaining))
+                except Exception:
+                    self._log.exception("Poll failed; continuing")
+                    continue
+                if event is None:
+                    continue
+                seen += 1
+                self._deliver(event, on_event)
+        finally:
+            if started_here:
+                self.stop()
+            else:
+                try:
+                    for event in self._normalizer.flush_all():
+                        self._queue_event(event)
+                except Exception:
+                    self._log.exception("Failed while flushing coalesced events")
+            leftover = self.drain()
+            for event in leftover:
+                seen += 1
+                self._deliver(event, on_event)
+        return seen
 
     def poll(self, timeout: float | None = None) -> USBEvent | None:
         """Return the next logical USB event, or ``None`` if the timeout expires."""
-        if self._pending:
-            return self._pending.popleft()
+        pending = self._pop_pending()
+        if pending is not None:
+            return pending
 
         if timeout is None:
             return self._wait_for_event(None)
@@ -98,11 +165,15 @@ class USBMonitor:
 
     def drain(self) -> list[USBEvent]:
         """Return any coalesced events waiting in the local buffer."""
-        for event in self._normalizer.flush_ready():
-            self._queue_event(event)
-        events = list(self._pending)
-        self._pending.clear()
-        return events
+        try:
+            for event in self._normalizer.flush_ready():
+                self._queue_event(event)
+        except Exception:
+            self._log.exception("Failed while flushing ready bursts")
+        with self._lock:
+            events = list(self._pending)
+            self._pending.clear()
+            return events
 
     def feed(self, raw: RawDeviceEvent) -> None:
         """Ingest one raw OS notification without polling the event source.
@@ -110,7 +181,12 @@ class USBMonitor:
         Tests and replay use this so a FakeClock can close the quiet
         window. It does not open or execute USB files.
         """
-        for event in self._normalizer.ingest(raw):
+        try:
+            produced = self._normalizer.ingest(raw)
+        except Exception:
+            self._log.exception("Normalizer failed; dropping one raw notification")
+            return
+        for event in produced:
             self._queue_event(event)
 
     def replay(self) -> list[USBEvent]:
@@ -120,7 +196,11 @@ class USBMonitor:
         else:
             queued = []
             while True:
-                raw = self._source.poll(timeout=0)
+                try:
+                    raw = self._source.poll(timeout=0)
+                except Exception:
+                    self._log.exception("Event source poll failed during replay")
+                    break
                 if raw is None:
                     break
                 queued.append(raw)
@@ -128,54 +208,99 @@ class USBMonitor:
             self.feed(raw)
         return self.drain()
 
+    def _deliver(
+        self,
+        event: USBEvent,
+        on_event: Callable[[USBEvent], None] | None,
+    ) -> None:
+        if on_event is None:
+            return
+        try:
+            on_event(event)
+        except Exception:
+            self._log.exception("Event callback failed; continuing")
+
+    def _pop_pending(self) -> USBEvent | None:
+        with self._lock:
+            if self._pending:
+                return self._pending.popleft()
+        return None
+
     def _queue_event(self, event: USBEvent) -> None:
+        metadata = NullMetadataCollector().collect(event)
         try:
             metadata = self._collector.collect(event)
-        except (OSError, ValueError, TypeError):
-            self._log.warning("Metadata collection failed; emitting event with known fields only")
-            metadata = NullMetadataCollector().collect(event)
-        apply_metadata(event, metadata)
-        observation = self._inventory.observe(event) if self._inventory is not None else None
-        assessment = self._analyzer.analyze(event, observation)
-        if (
-            observation is not None
-            and observation.derived_event is not None
-            and isinstance(event.details.get("anomaly"), dict)
-        ):
-            observation.derived_event.details["anomaly"] = dict(event.details["anomaly"])
+        except Exception:
+            self._log.exception("Metadata collection failed; using known fields only")
+        try:
+            apply_metadata(event, metadata)
+        except Exception:
+            self._log.exception("Metadata apply failed")
+        observation = None
+        try:
+            if self._inventory is not None:
+                observation = self._inventory.observe(event)
+        except Exception:
+            self._log.exception("Inventory update failed; event still recorded")
+        assessment = None
+        try:
+            assessment = self._analyzer.analyze(event, observation)
+            if (
+                observation is not None
+                and observation.derived_event is not None
+                and isinstance(event.details.get("anomaly"), dict)
+            ):
+                observation.derived_event.details["anomaly"] = dict(event.details["anomaly"])
+        except Exception:
+            self._log.exception("Analysis failed; emitting without a heuristic score")
         if assessment is not None:
-            apply_assessment(event, assessment)
-            if self._inventory is not None and observation is not None:
-                self._inventory.update_risk(
-                    observation.device.device_id,
-                    assessment.score,
-                    assessment.level,
-                )
-            if observation is not None and observation.derived_event is not None:
-                apply_assessment(observation.derived_event, assessment)
-            decision = self._alerts.consider(event, assessment)
-            attach_decision(event, decision)
-            if observation is not None and observation.derived_event is not None:
-                attach_decision(observation.derived_event, decision)
-            if decision.alert is not None:
-                self._log.info("%s", decision.alert)
+            try:
+                apply_assessment(event, assessment)
+                if self._inventory is not None and observation is not None:
+                    self._inventory.update_risk(
+                        observation.device.device_id,
+                        assessment.score,
+                        assessment.level,
+                    )
+                if observation is not None and observation.derived_event is not None:
+                    apply_assessment(observation.derived_event, assessment)
+                decision = self._alerts.consider(event, assessment)
+                attach_decision(event, decision)
+                if observation is not None and observation.derived_event is not None:
+                    attach_decision(observation.derived_event, decision)
+                if decision.alert is not None:
+                    self._log.info("%s", decision.alert)
+            except Exception:
+                self._log.exception("Could not attach assessment or alerts")
         self._emit(event)
         if observation is not None and observation.derived_event is not None:
             self._emit(observation.derived_event)
-        if assessment is not None and should_emit_suspicious(assessment):
-            self._emit(_suspicious_from(event))
+        if assessment is not None:
+            try:
+                if should_emit_suspicious(assessment):
+                    self._emit(_suspicious_from(event))
+            except Exception:
+                self._log.exception("Could not emit SUSPICIOUS_DEVICE")
 
     def _emit(self, event: USBEvent) -> None:
-        self._pending.append(event)
-        self._log.info("%s", event)
-        if self._event_store is not None:
-            self._event_store.append(event)
+        with self._lock:
+            self._pending.append(event)
+        try:
+            self._log.info("%s", event)
+            if self._event_store is not None:
+                self._event_store.append(event)
+        except Exception:
+            self._log.exception(
+                "Could not persist %s; live stream still has the event",
+                event.event_type.value,
+            )
 
     def _wait_for_event(self, timeout: float | None) -> USBEvent | None:
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:
-            if self._pending:
-                return self._pending.popleft()
+            pending = self._pop_pending()
+            if pending is not None:
+                return pending
 
             remaining: float | None
             if deadline is None:
@@ -183,17 +308,31 @@ class USBMonitor:
             else:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
+                    try:
+                        for event in self._normalizer.flush_ready():
+                            self._queue_event(event)
+                    except Exception:
+                        self._log.exception("Failed while flushing ready bursts")
+                    return self._pop_pending()
+
+            try:
+                raw = self._source.poll(timeout=min(_POLL_SLICE, remaining))
+            except Exception:
+                self._log.exception("Event source poll failed; continuing")
+                raw = None
+            if raw is None:
+                try:
                     for event in self._normalizer.flush_ready():
                         self._queue_event(event)
-                    return self._pending.popleft() if self._pending else None
-
-            raw = self._source.poll(timeout=min(_POLL_SLICE, remaining))
-            if raw is None:
-                for event in self._normalizer.flush_ready():
-                    self._queue_event(event)
+                except Exception:
+                    self._log.exception("Failed while flushing ready bursts")
                 continue
 
-            produced = self._normalizer.ingest(raw)
+            try:
+                produced = self._normalizer.ingest(raw)
+            except Exception:
+                self._log.exception("Normalizer failed; dropping one raw notification")
+                continue
             for event in produced:
                 self._queue_event(event)
 

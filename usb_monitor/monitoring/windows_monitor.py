@@ -196,7 +196,7 @@ class WindowsEventSource(EventSource):
         self._thread = threading.Thread(
             target=self._run,
             name="usb-wm-devicechange",
-            daemon=True,
+            daemon=False,
         )
         self._thread.start()
         if not self._ready.wait(timeout=_START_TIMEOUT_SECONDS):
@@ -229,6 +229,7 @@ class WindowsEventSource(EventSource):
         self._hwnd = None
         self._thread_id = None
         self._ready.clear()
+        self._stop.set()
 
     def poll(self, timeout: float | None = None) -> RawDeviceEvent | None:
         try:
@@ -247,17 +248,34 @@ class WindowsEventSource(EventSource):
             self._ready.set()
             self._cleanup_window()
             return
+        except Exception as exc:
+            self._start_error = exc
+            self._ready.set()
+            self._cleanup_window()
+            self._log.exception("Windows event source failed during setup")
+            return
 
         self._ready.set()
-        message = wintypes.MSG()
-        while not self._stop.is_set():
-            result = self._user32.GetMessageW(ctypes.byref(message), None, 0, 0)
-            if result == 0 or result == -1:
-                break
-            self._user32.TranslateMessage(ctypes.byref(message))
-            self._user32.DispatchMessageW(ctypes.byref(message))
-        self._cleanup_window()
-        self._log.info("Windows event source stopped")
+        try:
+            message = wintypes.MSG()
+            while not self._stop.is_set():
+                try:
+                    result = self._user32.GetMessageW(ctypes.byref(message), None, 0, 0)
+                except OSError:
+                    self._log.exception("GetMessageW failed")
+                    break
+                if result == 0 or result == -1:
+                    break
+                try:
+                    self._user32.TranslateMessage(ctypes.byref(message))
+                    self._user32.DispatchMessageW(ctypes.byref(message))
+                except OSError:
+                    self._log.exception("DispatchMessageW failed; continuing")
+        except Exception:
+            self._log.exception("Windows message loop crashed")
+        finally:
+            self._cleanup_window()
+            self._log.info("Windows event source stopped")
 
     def _create_hidden_window(self) -> int:
         user32 = self._user32
@@ -340,6 +358,7 @@ class WindowsEventSource(EventSource):
                 user32.DestroyWindow(self._hwnd)
             except OSError:
                 self._log.debug("DestroyWindow failed")
+            self._hwnd = None
         if self._class_atom:
             try:
                 user32.UnregisterClassW(self._class_name, self._kernel32.GetModuleHandleW(None))
@@ -360,9 +379,10 @@ class WindowsEventSource(EventSource):
                 self._on_device_change(int(wparam), int(lparam))
             elif msg == WM_DESTROY:
                 self._user32.PostQuitMessage(0)
+            return int(self._user32.DefWindowProcW(hwnd, msg, wparam, lparam))
         except Exception:
             self._log.exception("WM_DEVICECHANGE handler failed")
-        return int(self._user32.DefWindowProcW(hwnd, msg, wparam, lparam))
+            return 0
 
     def _on_device_change(self, wparam: int, lparam: int) -> None:
         if wparam not in (DBT_DEVICEARRIVAL, DBT_DEVICEREMOVECOMPLETE):
