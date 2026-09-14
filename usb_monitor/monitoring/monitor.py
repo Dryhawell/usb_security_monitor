@@ -19,7 +19,7 @@ from usb_monitor.analysis import Analyzer, apply_assessment, should_emit_suspici
 from usb_monitor.inventory import DeviceInventory
 from usb_monitor.models.enums import EventType
 from usb_monitor.models.event import USBEvent
-from usb_monitor.monitoring.event_source import EventSource
+from usb_monitor.monitoring.event_source import EventSource, RawDeviceEvent
 from usb_monitor.monitoring.metadata import (
     MetadataCollector,
     NullMetadataCollector,
@@ -103,6 +103,30 @@ class USBMonitor:
         events = list(self._pending)
         self._pending.clear()
         return events
+
+    def feed(self, raw: RawDeviceEvent) -> None:
+        """Ingest one raw OS notification without polling the event source.
+
+        Tests and replay use this so a FakeClock can close the quiet
+        window. It does not open or execute USB files.
+        """
+        for event in self._normalizer.ingest(raw):
+            self._queue_event(event)
+
+    def replay(self) -> list[USBEvent]:
+        """Pull queued mock events into the pipeline, then flush ready bursts."""
+        if hasattr(self._source, "take_all"):
+            queued = self._source.take_all()
+        else:
+            queued = []
+            while True:
+                raw = self._source.poll(timeout=0)
+                if raw is None:
+                    break
+                queued.append(raw)
+        for raw in queued:
+            self.feed(raw)
+        return self.drain()
 
     def _queue_event(self, event: USBEvent) -> None:
         try:

@@ -10,9 +10,9 @@ This project is intended for:
 - endpoint security fundamentals
 - Windows-focused USB event monitoring
 
-**Current status:** Phase 13 — local JSON, CSV, and human-readable
-report export under `data/reports/`. CLI subcommands from Phase 12
-remain, including `report --export`.
+**Current status:** Phase 14 — pytest suite with a mocked event source.
+No USB hardware is required for tests. JSON/CSV/text reports and CLI
+subcommands from earlier phases remain.
 
 ## Overview
 
@@ -46,10 +46,11 @@ Implemented:
 - Local JSON storage (`events.json`, `alerts.json`, `devices.json`)
 - CLI subcommands to list inventory, events, and alerts, plus a console summary
 - Local report export (JSON, CSV, and human-readable text under `data/reports/`)
+- Unit tests with a mocked event source (`pytest`, no USB hardware)
 
 Planned:
 
-- Unit tests with a mocked event source
+- Threading, exception isolation, and graceful shutdown for the live watcher
 
 ## Privacy
 
@@ -103,9 +104,11 @@ cd usb_security_monitor
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+pip install -r requirements-dev.txt
 ```
 
-Phase 1 has no third-party runtime dependencies.
+The application has no third-party runtime dependencies. `pytest` is
+test-only (Phase 14).
 
 ## Usage
 
@@ -146,10 +149,20 @@ python main.py --untrust DEVICE_ID
 python main.py --probe-metadata
 ```
 
+## Tests
+
+Tests use `MockEventSource` and never open USB files or talk to
+`WM_DEVICECHANGE`.
+
+```powershell
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
 ## Architecture (target)
 
 ```
-Windows Event Source
+Windows Event Source  (or MockEventSource in tests)
         ↓
    USB Monitor
         ↓

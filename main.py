@@ -1086,7 +1086,7 @@ def main(argv: list[str] | None = None) -> int:
     logger = get_logger("main")
 
     logger.info("%s %s started", __app_name__, __version__)
-    logger.info("Phase 13: local JSON/CSV/text report export")
+    logger.info("Phase 14: pytest suite with mocked event source")
 
     info = detect_platform()
     perms = check_permissions()
@@ -1170,7 +1170,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"{__app_name__} v{__version__}")
     print(f"Platform: {info.display_name}")
-    print("Phase 13: local reports. Try: python main.py report --export")
+    print("Phase 14: tests. Try: python -m pytest")
     print("Also: status, monitor, devices, events, alerts, trust ID, untrust ID")
     print("Legacy flags such as --status and --monitor still work.")
     return 0 if perms.can_persist else 1

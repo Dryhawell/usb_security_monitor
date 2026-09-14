@@ -21,6 +21,7 @@ from usb_monitor.monitoring.event_source import (
     redact_device_path,
     redact_pnp_device_id,
 )
+from usb_monitor.monitoring.mock_source import MockEventSource
 from usb_monitor.monitoring.metadata import (
     DeviceMetadata,
     MetadataCollector,
@@ -75,6 +76,7 @@ __all__ = [
     "EventSource",
     "EventSourceUnavailableError",
     "MetadataCollector",
+    "MockEventSource",
     "NullMetadataCollector",
     "RawAction",
     "RawDeviceEvent",
