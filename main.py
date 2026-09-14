@@ -1,7 +1,7 @@
 """USB Security Monitor entry point.
 
-Phase 15 hardens the live watcher: context-manager shutdown, isolated
-pipeline failures, and idempotent stop. CLI subcommands remain.
+Phase 16 adds an optional local tkinter operator window. Live watching
+still uses the same USBMonitor pipeline; the GUI does not execute USB files.
 """
 
 from __future__ import annotations
@@ -109,6 +109,7 @@ def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
         f"  CLI: subcommands (legacy flags such as --status still work)",
         f"  Storage: {storage_line} (local only, no telemetry)",
         f"  Reports: JSON/CSV/text under data/reports/ (report --export)",
+        f"  GUI: local tkinter window (python main.py gui)",
         f"  PowerShell on PATH: {'Yes' if info.powershell_available else 'No'}",
         "",
         "Permissions",
@@ -1117,6 +1118,47 @@ def demo_reliability() -> int:
     return 0 if ok else 1
 
 
+def demo_gui() -> int:
+    """Build and destroy the operator window. No live USB watcher."""
+    from usb_monitor.gui.present import DISCLAIMER, event_row
+
+    sample = USBEvent(
+        event_type=EventType.CONNECT,
+        device_id="0781:5581:DEMO1234",
+        serial_number="DEMO1234",
+        source="mock",
+    )
+    row = event_row(sample)
+    masked = "DEMO1234" not in row[2] and "********1234" in row[2]
+    try:
+        import tkinter as tk
+
+        from usb_monitor.gui.app import MonitorApp
+        from usb_monitor.monitoring import MockEventSource
+    except ImportError as exc:
+        print(f"tkinter unavailable: {exc}")
+        return 1
+
+    def factory() -> USBMonitor:
+        return USBMonitor(
+            MockEventSource(),
+            collector=NullMetadataCollector(),
+            inventory=DeviceInventory(path=None),
+        )
+
+    root = tk.Tk()
+    root.withdraw()
+    MonitorApp(root, monitor_factory=factory)
+    root.update_idletasks()
+    title_ok = __app_name__ in root.title()
+    root.destroy()
+    ok = masked and title_ok and DISCLAIMER.startswith("Heuristic")
+    print("GUI row masked the serial: OK" if masked else "mask FAILED")
+    print("Operator window constructed: OK" if title_ok else "window FAILED")
+    print("Demo result: OK" if ok else "Demo result: FAILED")
+    return 0 if ok else 1
+
+
 def list_inventory() -> int:
     inventory = DeviceInventory.load()
     stats = inventory.stats()
@@ -1151,7 +1193,7 @@ def main(argv: list[str] | None = None) -> int:
     logger = get_logger("main")
 
     logger.info("%s %s started", __app_name__, __version__)
-    logger.info("Phase 15: threading, isolated failures, graceful shutdown")
+    logger.info("Phase 16: local tkinter operator window")
 
     info = detect_platform()
     perms = check_permissions()
@@ -1195,6 +1237,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.demo_reliability:
         return demo_reliability()
 
+    if args.demo_gui:
+        return demo_gui()
+
     if args.probe_metadata:
         return probe_metadata()
 
@@ -1235,11 +1280,15 @@ def main(argv: list[str] | None = None) -> int:
             print("Missing device identity. Usage: python main.py untrust DEVICE_ID")
             return 2
         return change_trust(device_id, False)
+    if command == "gui":
+        from usb_monitor.gui import run_gui
+
+        return run_gui()
 
     print(f"{__app_name__} v{__version__}")
     print(f"Platform: {info.display_name}")
-    print("Phase 15: reliability. Try: python main.py --demo-reliability")
-    print("Also: status, monitor, devices, events, alerts, trust ID, untrust ID")
+    print("Phase 16: local GUI. Try: python main.py gui")
+    print("Also: status, monitor, devices, events, alerts, report, trust ID, untrust ID")
     print("Legacy flags such as --status and --monitor still work.")
     return 0 if perms.can_persist else 1
 

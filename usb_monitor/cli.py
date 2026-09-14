@@ -39,7 +39,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
         epilog=(
             "Commands: status, monitor, devices, events, alerts, report, "
-            "trust, untrust. Legacy flags such as --status and --monitor "
+            "trust, untrust, gui. Legacy flags such as --status and --monitor "
             "still work. This tool does not exploit devices, execute USB "
             "contents, or send data off the local machine."
         ),
@@ -149,6 +149,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Verify poll/metadata/store failures do not kill the monitor (no USB hardware).",
     )
     parser.add_argument(
+        "--demo-gui",
+        action="store_true",
+        help="Create and destroy the operator window without starting live USB monitoring.",
+    )
+    parser.add_argument(
+        "--gui",
+        action="store_true",
+        help="Open the local operator window (does not execute USB files).",
+    )
+    parser.add_argument(
         "--devices",
         action="store_true",
         help="List locally observed devices from inventory.",
@@ -254,6 +264,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     untrust_cmd.add_argument("device_id", help="Device identity (for example VID:PID:SERIAL).")
 
+    subparsers.add_parser(
+        "gui",
+        help="Open the local operator window (does not execute USB files).",
+    )
+
     parser.set_defaults(
         command=None,
         device_id=None,
@@ -282,6 +297,8 @@ def resolve_command(args: argparse.Namespace) -> str | None:
         return "trust"
     if args.untrust:
         return "untrust"
+    if args.gui:
+        return "gui"
     return None
 
 
@@ -526,6 +543,11 @@ def demo_cli() -> int:
 
     flag_devices = parse_args(["--devices"])
     checks.append(("flag --devices", resolve_command(flag_devices) == "devices"))
+
+    gui = parse_args(["gui"])
+    checks.append(("subcommand gui", resolve_command(gui) == "gui"))
+    flag_gui = parse_args(["--gui"])
+    checks.append(("flag --gui", resolve_command(flag_gui) == "gui"))
 
     none = parse_args([])
     checks.append(("no command", resolve_command(none) is None))
