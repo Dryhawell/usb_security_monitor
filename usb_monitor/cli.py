@@ -1,24 +1,31 @@
 """Command-line interface for USB Security Monitor.
 
 Subcommands are the Phase 12 surface. Older top-level flags remain as
-aliases so existing scripts keep working. This module lists local
-records; JSON/CSV report files belong to a later phase.
+aliases so existing scripts keep working. Phase 13 adds JSON/CSV/text
+report files under data/reports/.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
+from pathlib import Path
 from typing import Any
 
 from usb_monitor import __app_name__, __version__
-from usb_monitor.inventory import DeviceInventory, format_device_row
 from usb_monitor.models.alert import Alert
 from usb_monitor.models.enums import EventType, Severity, parse_enum
 from usb_monitor.models.event import USBEvent
+from usb_monitor.reports import (
+    DEFAULT_REPORT_LIMIT,
+    DEFAULT_REPORTS_DIR,
+    build_local_report,
+    export_report,
+    resolve_formats,
+)
 from usb_monitor.storage import AlertStore, EventStore
 
 DEFAULT_LIST_LIMIT = 50
-DEFAULT_REPORT_LIMIT = 20
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -132,6 +139,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Verify subcommand parsing without USB hardware.",
     )
     parser.add_argument(
+        "--demo-report",
+        action="store_true",
+        help="Write sample JSON/CSV/text reports in a temp folder (no USB hardware).",
+    )
+    parser.add_argument(
         "--devices",
         action="store_true",
         help="List locally observed devices from inventory.",
@@ -197,7 +209,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     report_cmd = subparsers.add_parser(
         "report",
-        help="Print a local human-readable summary of inventory, events, and alerts.",
+        help="Print a local summary and optionally export JSON/CSV/text files.",
     )
     report_cmd.add_argument(
         "--limit",
@@ -205,6 +217,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_REPORT_LIMIT,
         metavar="N",
         help=f"Rows per section (default: {DEFAULT_REPORT_LIMIT}; 0 = all).",
+    )
+    report_cmd.add_argument(
+        "--export",
+        action="store_true",
+        dest="export_report",
+        help="Write report files under data/reports/ (or --output-dir).",
+    )
+    report_cmd.add_argument(
+        "--format",
+        dest="report_format",
+        metavar="FORMAT",
+        help="text, json, csv, or all (default: text on console; all with --export).",
+    )
+    report_cmd.add_argument(
+        "--output-dir",
+        dest="output_dir",
+        metavar="DIR",
+        help="Directory for --export (default: data/reports).",
     )
 
     trust_cmd = subparsers.add_parser(
@@ -226,6 +256,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         event_type=None,
         alert_severity=None,
         command_timeout=None,
+        export_report=False,
+        report_format=None,
+        output_dir=None,
     )
     return parser.parse_args(argv)
 
@@ -345,61 +378,41 @@ def list_alerts(*, limit: int | None = DEFAULT_LIST_LIMIT, severity: str | None 
     return 0
 
 
-def print_report(*, limit: int | None = DEFAULT_REPORT_LIMIT) -> int:
-    """Human-readable local summary. Not a JSON/CSV export."""
-    inventory = DeviceInventory.load()
-    stats = inventory.stats()
-    events = EventStore.load().list_events()
-    alerts = AlertStore.load().list_alerts()
+def print_report(
+    *,
+    limit: int | None = DEFAULT_REPORT_LIMIT,
+    export: bool = False,
+    fmt: str | None = None,
+    output_dir: str | None = None,
+) -> int:
+    """Print a local summary and optionally write JSON/CSV/text files."""
     try:
-        event_rows = _apply_limit(events, limit)
-        alert_rows = _apply_limit(alerts, limit)
+        report = build_local_report(limit=limit)
+        formats = resolve_formats(fmt, exported=export)
     except ValueError as exc:
         print(exc)
         return 2
-    lines = [
-        f"{__app_name__} local summary",
-        "",
-        f"Inventory: {stats['total']} device(s), {stats['trusted']} trusted",
-        f"Events: {len(events)} (showing {len(event_rows)})",
-        f"Alerts: {len(alerts)} (showing {len(alert_rows)})",
-        "Heuristic scores are not a malware verdict.",
-        "",
-        "Devices:",
-    ]
-    devices = inventory.list_devices()
-    if limit is None or limit == 0:
-        shown_devices = devices
-    elif limit < 0:
-        print("limit must be >= 0")
-        return 2
-    else:
-        shown_devices = devices[:limit]
-    if not shown_devices:
-        lines.append("  (empty)")
-    else:
-        for device in shown_devices:
-            lines.append(f"  {format_device_row(device)}")
-    lines.extend(["", "Recent events:"])
-    if not event_rows:
-        lines.append("  (empty)")
-    else:
-        for event in event_rows:
-            lines.append(f"  {format_event_row(event)}")
-    lines.extend(["", "Recent alerts:"])
-    if not alert_rows:
-        lines.append("  (empty)")
-    else:
-        for alert in alert_rows:
-            lines.append(f"  {format_alert_row(alert)}")
-    lines.extend(
-        [
-            "",
-            "This is a local console summary. JSON/CSV file export is a later phase.",
-            "--------------------------------",
-        ]
-    )
-    print("\n".join(lines))
+
+    if not export:
+        if formats == ("json",):
+            print(json.dumps(report.to_dict(), indent=2))
+            return 0
+        if formats == ("csv",):
+            print("CSV export writes three files; use: python main.py report --export --format csv")
+            return 2
+        print(report.to_text())
+        return 0
+
+    directory = Path(output_dir) if output_dir else DEFAULT_REPORTS_DIR
+    try:
+        written = export_report(report, directory, formats=formats)
+    except OSError as exc:
+        print(f"Could not write report files: {exc}")
+        return 1
+    print(report.to_text())
+    print("Wrote:")
+    for path in written:
+        print(f"  {path}")
     return 0
 
 
@@ -489,6 +502,17 @@ def demo_cli() -> int:
         (
             "report --limit",
             resolve_command(report) == "report" and report.limit == 5,
+        )
+    )
+
+    exported = parse_args(["report", "--export", "--format", "csv", "--output-dir", "tmp"])
+    checks.append(
+        (
+            "report --export --format csv",
+            resolve_command(exported) == "report"
+            and exported.export_report is True
+            and exported.report_format == "csv"
+            and exported.output_dir == "tmp",
         )
     )
 
