@@ -2,7 +2,8 @@
 
 Defensive Blue Team / code-quality review of USB Security Monitor as of
 `feat/project-docs` (GUI + docs stack). This is not a malware-detection
-claim, a pentest, and not v1.0.0 packaging.
+claim or a pentest. Phase 19 stamped this tree as **v1.0.0** without
+merging the stacked PRs into `main`.
 
 Scope: local endpoint USB/removable-storage visibility. The tool must
 not exploit devices, execute USB contents, hide itself, or send
@@ -56,7 +57,7 @@ These are by design, not bugs:
 | Local plaintext identifiers | `devices.json` / `events.json` / JSON-CSV reports store unmasked serials. Anyone with the user profile can read them. |
 | Trust is an operator flag | `TRUSTED_DEVICE` (−10) lowers the heuristic. It is not an allowlist and not a safety guarantee. |
 | GUI worker vs Windows thread | Tk is main-thread; monitor worker is daemon; Windows pump is non-daemon. A hung `GetMessageW` can delay process exit after Stop. |
-| Stacked PRs vs `main` | Feature work through Phase 17 lives on stacked branches. `origin/main` still ends at local JSON storage until those PRs merge. |
+| Stacked PRs vs `main` | Feature work through v1.0.0 lives on stacked branches. `origin/main` still ends at local JSON storage until those PRs merge. |
 | No remote SOC integration | There is no syslog/SIEM shipper. That is correct for “local only”; an analyst must copy reports by hand. |
 
 Do not treat HIGH/CRITICAL or `SUSPICIOUS_DEVICE` as “this stick is
@@ -94,13 +95,12 @@ Gaps (honest, not a failing grade):
 
 ## Follow-ups
 
-### Phase 19 (v1.0.0) — in scope if kept small
+### Phase 19 (v1.0.0) — done
 
-- Merge the stacked feature PRs into `main` (or a release branch).
-- Set `__version__` to `1.0.0` and point README status at a release.
-- Keep the malware-disclaimer language on CLI, GUI, and reports.
-- Confirm `python -m pytest` and `--demo-cli` / `--demo-gui` /
-  `--demo-reliability` on the release commit.
+- `__version__` is `1.0.0`; README status marks the planned scope complete.
+- Malware-disclaimer language remains on CLI, GUI, reports, and README.
+- Stacked PRs are **not** merged into `main` in this stamp (operator merge later).
+- Event-store rotation and coalescing-key rewrite stay deferred.
 
 ### Later (not v1.0 blockers)
 
@@ -115,6 +115,6 @@ Gaps (honest, not a failing grade):
 ## Verdict
 
 The tree is a coherent **local USB visibility** portfolio piece: layered,
-explainable, and explicit about what it cannot do. It is ready for a
-v1.0 documentation/version stamp after the stacked branches land. It is
-**not** an EDR, antivirus, or BadUSB detector.
+explainable, and explicit about what it cannot do. v1.0.0 is a version
+and documentation stamp of this stacked tree. It is **not** an EDR,
+antivirus, or BadUSB detector.
