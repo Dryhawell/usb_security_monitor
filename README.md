@@ -10,9 +10,10 @@ This project is intended for:
 - endpoint security fundamentals
 - Windows-focused USB event monitoring
 
-**Current status:** Phase 18 — project review. Features through the
-local operator GUI are implemented. Heuristic scores are **not** a
-malware verdict. See [docs/REVIEW.md](docs/REVIEW.md).
+**Current status:** v1.0.0 — planned scope is complete (live watch, inventory,
+explainable scoring, local alerts/storage, CLI, reports, GUI, tests, docs,
+review). Heuristic scores are **not** a malware verdict. See
+[docs/REVIEW.md](docs/REVIEW.md).
 
 ## Overview
 
@@ -54,9 +55,9 @@ anomaly signals — without crossing into offensive USB techniques.
 - Threading, exception isolation, and graceful shutdown for the live watcher
 - Optional local GUI (tkinter) for operators who prefer a window over the CLI
 
-Planned:
-
-- v1.0 packaging (version stamp after stacked branches merge)
+Deferred items (not in v1.0.0): event-store rotation, coalescing-key
+rewrite, splitting `main.py` demos, extra rule tests, and optional local
+JSON encryption. See [docs/REVIEW.md](docs/REVIEW.md).
 
 ## Privacy
 

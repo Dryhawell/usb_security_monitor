@@ -1,7 +1,7 @@
 """USB Security Monitor entry point.
 
-Phase 18 is the project review. Live watching, CLI, reports, and the
-local GUI remain the operator surface. Scores are not a malware verdict.
+v1.0.0: live watching, CLI, reports, and the local GUI are the operator
+surface. Scores are not a malware verdict.
 """
 
 from __future__ import annotations
@@ -1193,7 +1193,7 @@ def main(argv: list[str] | None = None) -> int:
     logger = get_logger("main")
 
     logger.info("%s %s started", __app_name__, __version__)
-    logger.info("Phase 18: project review")
+    logger.info("v1.0.0: local USB visibility monitor")
 
     info = detect_platform()
     perms = check_permissions()
@@ -1287,7 +1287,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"{__app_name__} v{__version__}")
     print(f"Platform: {info.display_name}")
-    print("Phase 18: review. See docs/REVIEW.md")
+    print("v1.0.0: local USB visibility. See docs/REVIEW.md")
     print("Also: status, monitor, devices, events, alerts, report, trust ID, untrust ID")
     print("Legacy flags such as --status and --monitor still work.")
     return 0 if perms.can_persist else 1
