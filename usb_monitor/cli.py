@@ -1,8 +1,8 @@
 """Command-line interface for USB Security Monitor.
 
 Subcommands are the Phase 12 surface. Older top-level flags remain as
-aliases so existing scripts keep working. Phase 13 adds JSON/CSV/text
-report files under data/reports/.
+aliases so existing scripts keep working. Offline `--demo-*` flags stay
+here; their bodies live in `usb_monitor.demos`.
 """
 
 from __future__ import annotations

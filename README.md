@@ -55,9 +55,8 @@ anomaly signals — without crossing into offensive USB techniques.
 - Threading, exception isolation, and graceful shutdown for the live watcher
 - Optional local GUI (tkinter) for operators who prefer a window over the CLI
 
-Deferred items (not in v1.0.0): splitting `main.py` demos, extra rule
-tests, and optional local JSON encryption. See
-[docs/REVIEW.md](docs/REVIEW.md).
+Deferred items (not in v1.0.0): extra rule tests and optional local
+JSON encryption. See [docs/REVIEW.md](docs/REVIEW.md).
 
 ## Privacy
 
@@ -147,7 +146,8 @@ Legacy flags such as `--status`, `--monitor`, `--devices`, `--trust`,
 Live monitor and GUI do **not** open or execute files on USB media.
 Ctrl+C (CLI) or Stop / close window (GUI) shuts the watcher down.
 
-Offline checks (no USB hardware):
+Offline checks (no USB hardware). `--demo-*` flags are unchanged;
+implementations live in `usb_monitor.demos`:
 
 ```powershell
 python main.py --demo-cli
