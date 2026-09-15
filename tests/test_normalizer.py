@@ -50,3 +50,36 @@ def test_connect_then_disconnect_are_separate_events() -> None:
         EventType.CONNECT,
         EventType.DISCONNECT,
     ]
+
+
+def _usb_path(serial: str) -> str:
+    return (
+        rf"\\?\USB#VID_0781&PID_5581#{serial}"
+        r"#{a5dcbf10-6530-11d2-901f-00c04fb951ed}"
+    )
+
+
+def test_same_vid_pid_different_serials_stay_separate() -> None:
+    clock = FakeClock()
+    normalizer = EventNormalizer(clock=clock)
+    first = raw_event(kind="usb", device_path=_usb_path("STICKAAA"))
+    second = raw_event(kind="usb", device_path=_usb_path("STICKBBB"))
+    normalizer.ingest(first)
+    normalizer.ingest(second)
+    clock.advance(0.5)
+    events = normalizer.flush_ready()
+    serials = {item.serial_number for item in events}
+    assert serials == {"STICKAAA", "STICKBBB"}
+    assert all(item.event_type is EventType.CONNECT for item in events)
+
+
+def test_usb_serial_still_merges_with_disk_and_volume() -> None:
+    clock = FakeClock()
+    normalizer = EventNormalizer(clock=clock)
+    for raw in usb_burst():
+        normalizer.ingest(raw)
+    clock.advance(0.5)
+    events = normalizer.flush_ready()
+    assert len(events) == 1
+    assert events[0].serial_number == "DEMO1234"
+    assert events[0].drive_letter == "E:"

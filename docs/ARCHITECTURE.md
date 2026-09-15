@@ -14,6 +14,7 @@ WM_DEVICECHANGE
         ↓
   EventNormalizer
   quiet 0.5s / max 2s; drop disk-only bursts
+  different USB serials stay separate even if VID/PID match
         ↓
   USBEvent CONNECT / DISCONNECT
         ↓
@@ -50,6 +51,8 @@ stop_when=...)` on a worker. The Windows source keeps its own thread.
 
 Preferred identity is `VID:PID:SERIAL` when the OS exposed a serial.
 The model never fabricates missing manufacturer, serial, or VID/PID.
+The coalescer keeps two USB paths separate when both expose an
+instance/serial and those values differ, even if VID/PID match.
 
 Volume label is not treated as manufacturer. USB hard disks often
 report as `DRIVE_FIXED` (`removable=False`). Trust is an operator flag;

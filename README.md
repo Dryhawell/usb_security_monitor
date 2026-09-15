@@ -55,9 +55,9 @@ anomaly signals — without crossing into offensive USB techniques.
 - Threading, exception isolation, and graceful shutdown for the live watcher
 - Optional local GUI (tkinter) for operators who prefer a window over the CLI
 
-Deferred items (not in v1.0.0): coalescing-key rewrite, splitting
-`main.py` demos, extra rule tests, and optional local JSON encryption.
-See [docs/REVIEW.md](docs/REVIEW.md).
+Deferred items (not in v1.0.0): splitting `main.py` demos, extra rule
+tests, and optional local JSON encryption. See
+[docs/REVIEW.md](docs/REVIEW.md).
 
 ## Privacy
 
