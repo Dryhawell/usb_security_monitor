@@ -65,3 +65,16 @@ def test_cli_subcommands_and_legacy_flags() -> None:
     assert report.export_report is True
     assert report.report_format == "json"
     assert resolve_command(parse_args([])) is None
+
+
+def test_demo_dispatch_skips_operator_commands() -> None:
+    from usb_monitor.demos import run_requested_demo
+
+    assert run_requested_demo(parse_args(["status"])) is None
+    assert run_requested_demo(parse_args([])) is None
+
+
+def test_demo_cli_still_runs_from_main() -> None:
+    from main import main
+
+    assert main(["--demo-cli"]) == 0

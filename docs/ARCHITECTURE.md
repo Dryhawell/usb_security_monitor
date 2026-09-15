@@ -81,7 +81,8 @@ must not touch `data/` pass `path=None`.
 ## Presentation
 
 CLI subcommands: `status`, `monitor`, `devices`, `events`, `alerts`,
-`report`, `trust`, `untrust`, `gui`.
+`report`, `trust`, `untrust`, `gui`. Offline `--demo-*` checks live in
+`usb_monitor.demos`; `main.py` only dispatches them.
 
 `report` prints a masked summary. `report --export` writes files under
 `data/reports/`. The GUI shows the same records and can export without
