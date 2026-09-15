@@ -3,6 +3,8 @@
 One physical plug usually produces several WM_DEVICECHANGE messages
 (USB interface, disk, volume). This module coalesces compatible signals
 in a short quiet window so the rest of the app sees one logical event.
+When two USB paths expose different instance/serial segments, they stay
+separate even if VID/PID match.
 
 This layer does not query WMI, maintain inventory, or assign risk.
 """
@@ -76,6 +78,13 @@ class _Burst:
             self.vendor_id
             and raw.vendor_id
             and (self.vendor_id != raw.vendor_id or self.product_id != raw.product_id)
+        ):
+            return False
+        raw_instance = parse_instance_id_from_path(raw.device_path)
+        if (
+            self.instance_id
+            and raw_instance
+            and self.instance_id.casefold() != raw_instance.casefold()
         ):
             return False
         return True
