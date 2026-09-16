@@ -63,7 +63,9 @@ and JSON/CSV report files keep unmasked identifiers for local forensics.
 
 ## Storage
 
-Writes use a temp file plus replace. Paths stay under this project:
+Writes use a temp file plus replace, then an owner-only ACL (Windows
+DACL / POSIX 0600). Identifiers stay plaintext. Paths stay under this
+project:
 
 | Path | Content |
 |---|---|

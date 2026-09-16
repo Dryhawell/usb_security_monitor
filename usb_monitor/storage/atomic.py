@@ -2,6 +2,8 @@
 
 Files stay on the authorized endpoint. Writes use a temp file plus
 replace so a crash is less likely to leave a half-written document.
+After replace, the file is restricted to the current user (still
+plaintext, still local, no telemetry).
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from usb_monitor.utils.acl import restrict_owner_only
 from usb_monitor.utils.logger import get_logger
 
 _log = get_logger("storage")
@@ -37,6 +40,10 @@ def write_text_atomic(
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
             handle.write(payload)
         tmp_path.replace(path)
+        try:
+            restrict_owner_only(path)
+        except Exception:
+            _log.warning("Could not restrict ACLs on %s", path, exc_info=True)
     except OSError:
         tmp_path.unlink(missing_ok=True)
         raise

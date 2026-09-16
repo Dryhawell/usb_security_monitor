@@ -54,7 +54,7 @@ These are by design, not bugs:
 | Same VID:PID in 0.5s | USB paths with different instance/serial segments stay separate. Disk/volume follow-ups without a serial still merge into the open burst. Two sticks that expose no serial can still merge. |
 | Dropped raw events | The Windows source queue is bounded (1024). When full, a raw event is logged and dropped. |
 | Capped JSON history | `events.json` keeps the newest 5000 records; `alerts.json` keeps 2000. Older rows are dropped, not archived. Inventory stays uncapped. |
-| Local plaintext identifiers | `devices.json` / `events.json` / JSON-CSV reports store unmasked serials. Anyone with the user profile can read them. |
+| Local plaintext identifiers | `devices.json` / `events.json` / JSON-CSV reports store unmasked serials. Writes apply an owner-only ACL (plus SYSTEM/Administrators on Windows). Anyone who can run as this user can still read them. Encryption is still deferred. |
 | Trust is an operator flag | `TRUSTED_DEVICE` (−10) lowers the heuristic. It is not an allowlist and not a safety guarantee. |
 | GUI worker vs Windows thread | Tk is main-thread; monitor worker is daemon; Windows pump is non-daemon. A hung `GetMessageW` can delay process exit after Stop. |
 | Stacked PRs vs `main` | v1.0.0 is on `main`. Later hardening lands as ordinary PRs against `main`. |
@@ -65,7 +65,7 @@ malware.” They mean stacked observed characteristics.
 
 ## Test coverage
 
-`python -m pytest` currently has **35** tests. They are hardware-free
+`python -m pytest` currently has **40** tests. They are hardware-free
 and that is appropriate.
 
 Covered well:
@@ -81,6 +81,7 @@ Covered well:
 - Poll/metadata/store isolation, idempotent stop
 - GUI row masking and window construct/destroy
 - `--demo-*` flags still dispatch through `main.py`
+- Owner-only ACL after atomic JSON/report writes
 
 Gaps (honest, not a failing grade):
 
@@ -106,11 +107,12 @@ Gaps (honest, not a failing grade):
   events / 2000 alerts). Coalescing uses instance/serial when both
   sides of a match expose one.
 - Offline `--demo-*` implementations live in `usb_monitor.demos`.
+- JSON/report writes apply an owner-only ACL (still plaintext, still
+  local).
 
 ### Later (not v1.0 blockers)
 
-- Optional local encryption or tighter ACLs for JSON (still no
-  telemetry).
+- Optional local encryption for JSON (still no telemetry).
 - Broader rule unit tests (identity change, trusted mitigation).
 - Manual hardware test notes in docs (authorized sticks only).
 
