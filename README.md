@@ -55,9 +55,8 @@ anomaly signals — without crossing into offensive USB techniques.
 - Threading, exception isolation, and graceful shutdown for the live watcher
 - Optional local GUI (tkinter) for operators who prefer a window over the CLI
 
-Deferred items (not in v1.0.0): extra rule tests and optional local
-JSON encryption (ACLs already restrict files to the current user). See
-[docs/REVIEW.md](docs/REVIEW.md).
+Deferred items (not in v1.0.0): optional local JSON encryption and
+manual hardware test notes. See [docs/REVIEW.md](docs/REVIEW.md).
 
 ## Privacy
 
