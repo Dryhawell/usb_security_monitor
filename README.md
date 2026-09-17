@@ -30,6 +30,7 @@ Further reading:
 - [Architecture](docs/ARCHITECTURE.md) — pipeline, identity, storage
 - [Scoring and alerts](docs/SCORING.md) — rules, bands, cooldown
 - [Review](docs/REVIEW.md) — strengths, limits, SOC caveats, test gaps
+- [Manual hardware checks](docs/HARDWARE.md) — authorized USB storage only
 
 ## Why This Project Exists
 
@@ -55,8 +56,8 @@ anomaly signals — without crossing into offensive USB techniques.
 - Threading, exception isolation, and graceful shutdown for the live watcher
 - Optional local GUI (tkinter) for operators who prefer a window over the CLI
 
-Deferred items (not in v1.0.0): optional local JSON encryption and
-manual hardware test notes. See [docs/REVIEW.md](docs/REVIEW.md).
+Deferred items (not in v1.0.0): optional local JSON encryption. See
+[docs/REVIEW.md](docs/REVIEW.md).
 
 ## Privacy
 
@@ -164,15 +165,24 @@ python main.py --demo-inventory
 python main.py --demo-normalize
 python main.py --demo-metadata
 python main.py --demo-models
+```
+
+Live checks (Windows, authorized USB storage only). See
+[docs/HARDWARE.md](docs/HARDWARE.md):
+
+```powershell
 python main.py --probe-source
 python main.py --probe-metadata
 python main.py --listen-source --timeout 20
+python main.py monitor --timeout 30
+python main.py gui
 ```
 
 ## Tests
 
 Tests use `MockEventSource` and never open USB files or talk to
-`WM_DEVICECHANGE`.
+`WM_DEVICECHANGE`. Manual plug/unplug checks are documented in
+[docs/HARDWARE.md](docs/HARDWARE.md).
 
 ```powershell
 pip install -r requirements-dev.txt
