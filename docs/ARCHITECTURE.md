@@ -60,13 +60,17 @@ report as `DRIVE_FIXED` (`removable=False`). Trust is an operator flag;
 it does not hide CONNECT/DISCONNECT events.
 
 Console, logs, and the GUI mask serials (`********1234`). Local JSON
-and JSON/CSV report files keep unmasked identifiers for local forensics.
+and JSON/CSV report files keep unmasked identifiers for local forensics
+unless store DPAPI is enabled (`USB_MONITOR_DPAPI=1`). Reports stay
+plaintext even then.
 
 ## Storage
 
 Writes use a temp file plus replace, then an owner-only ACL (Windows
-DACL / POSIX 0600). Identifiers stay plaintext. Paths stay under this
-project:
+DACL / POSIX 0600). New `events.json` / `alerts.json` / `devices.json`
+writes may be DPAPI-wrapped when `USB_MONITOR_DPAPI=1` (Windows user
+key; same user can still decrypt). Report exports stay plaintext.
+Paths stay under this project:
 
 | Path | Content |
 |---|---|

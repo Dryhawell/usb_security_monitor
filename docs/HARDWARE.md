@@ -16,7 +16,8 @@ a malware verdict. This is not a pentest, BadUSB lab, or firmware test.
 - Unknown or untrusted sticks are out of scope. Do not “test malware”
   with this tool.
 - Console, logs, and the GUI mask serials. Local JSON under `data/`
-  keeps unmasked identifiers for forensics on this endpoint.
+  keeps unmasked identifiers for forensics on this endpoint unless
+  `USB_MONITOR_DPAPI=1` is set. Report exports stay plaintext.
 - USB hard disks often appear as `DRIVE_FIXED` (`removable=False`).
   That is expected, not a failed check.
 

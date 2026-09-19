@@ -54,7 +54,7 @@ These are by design, not bugs:
 | Same VID:PID in 0.5s | USB paths with different instance/serial segments stay separate. Disk/volume follow-ups without a serial still merge into the open burst. Two sticks that expose no serial can still merge. |
 | Dropped raw events | The Windows source queue is bounded (1024). When full, a raw event is logged and dropped. |
 | Capped JSON history | `events.json` keeps the newest 5000 records; `alerts.json` keeps 2000. Older rows are dropped, not archived. Inventory stays uncapped. |
-| Local plaintext identifiers | `devices.json` / `events.json` / JSON-CSV reports store unmasked serials. Writes apply an owner-only ACL (plus SYSTEM/Administrators on Windows). Anyone who can run as this user can still read them. Encryption is still deferred. |
+| Local plaintext identifiers | By default `devices.json` / `events.json` / JSON-CSV reports store unmasked serials. Writes apply an owner-only ACL. Set `USB_MONITOR_DPAPI=1` to wrap new store JSON with the current Windows user DPAPI key; reports stay plaintext. Anyone who can run as this user can still decrypt. |
 | Trust is an operator flag | `TRUSTED_DEVICE` (−10) lowers the heuristic. It is not an allowlist and not a safety guarantee. |
 | GUI worker vs Windows thread | Tk is main-thread; monitor worker is daemon; Windows pump is non-daemon. A hung `GetMessageW` can delay process exit after Stop. |
 | Stacked PRs vs `main` | v1.0.0 is on `main`. Later hardening lands as ordinary PRs against `main`. |
@@ -65,7 +65,7 @@ malware.” They mean stacked observed characteristics.
 
 ## Test coverage
 
-`python -m pytest` currently has **43** tests. They are hardware-free
+`python -m pytest` currently has **51** tests. They are hardware-free
 and that is appropriate.
 
 Covered well:
@@ -83,6 +83,7 @@ Covered well:
 - GUI row masking and window construct/destroy
 - `--demo-*` flags still dispatch through `main.py`
 - Owner-only ACL after atomic JSON/report writes
+- Optional DPAPI wrapping of store JSON (`USB_MONITOR_DPAPI=1`)
 
 Gaps (honest, not a failing grade):
 
@@ -111,10 +112,12 @@ Gaps (honest, not a failing grade):
 - Rule tests cover manufacturer identity change and trusted −10.
 - Manual hardware checklist lives in `docs/HARDWARE.md` (authorized
   sticks only; pytest stays mock-only).
+- Optional DPAPI for store JSON (`USB_MONITOR_DPAPI=1`; reports stay
+  plaintext; still no telemetry).
 
 ### Later (not v1.0 blockers)
 
-- Optional local encryption for JSON (still no telemetry).
+- None currently tracked. Further work is ordinary product follow-up.
 
 ## Verdict
 

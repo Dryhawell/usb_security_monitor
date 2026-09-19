@@ -49,15 +49,16 @@ anomaly signals — without crossing into offensive USB techniques.
 - Explainable rule-based risk scoring (heuristic, not a malware verdict)
 - Sliding-window anomaly signals (rapid reconnect, event flaps, new-device bursts)
 - Local session alerts with fingerprint deduplication and cooldown
-- Local JSON storage (`events.json`, `alerts.json`, `devices.json`) with a newest-record cap on events and alerts, and owner-only ACLs after each write
+- Local JSON storage (`events.json`, `alerts.json`, `devices.json`) with a newest-record cap on events and alerts, owner-only ACLs after each write, and optional Windows DPAPI (`USB_MONITOR_DPAPI=1`)
 - CLI subcommands to list inventory, events, and alerts
 - Local report export (JSON, CSV, and human-readable text under `data/reports/`)
 - Unit tests with a mocked event source (`pytest`, no USB hardware)
 - Threading, exception isolation, and graceful shutdown for the live watcher
 - Optional local GUI (tkinter) for operators who prefer a window over the CLI
 
-Deferred items (not in v1.0.0): optional local JSON encryption. See
-[docs/REVIEW.md](docs/REVIEW.md).
+The planned post-1.0 hardening items in
+[docs/REVIEW.md](docs/REVIEW.md) are complete. Further work is ordinary
+product follow-up.
 
 ## Privacy
 
@@ -67,7 +68,10 @@ It will:
 
 - store events, inventory, alerts, and logs under this project directory
 - restrict JSON and report files to the current user after each write
-  (Windows DACL / POSIX 0600; identifiers stay local plaintext)
+  (Windows DACL / POSIX 0600)
+- optionally wrap store JSON with the current Windows user DPAPI key
+  when `USB_MONITOR_DPAPI=1` (reports stay plaintext; same user can
+  still decrypt; no telemetry)
 - never upload telemetry
 - never contact external servers
 - never transmit device information
@@ -80,6 +84,14 @@ Local paths:
 - `data/alerts/` — emitted alerts (`alerts.json`, newest 2000 kept)
 - `data/reports/` — exported reports (`usb-report-*.json`, `*.csv`, `*.txt`)
 - `logs/usb_monitor.log` — application log
+
+To wrap new `events.json` / `alerts.json` / `devices.json` writes with
+the current Windows user DPAPI key (default is off; reports stay
+plaintext):
+
+```powershell
+$env:USB_MONITOR_DPAPI = "1"
+```
 
 Serial numbers and similar identifiers are treated as sensitive local
 device identifiers. Console, logs, and the GUI mask them. Local JSON

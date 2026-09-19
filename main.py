@@ -45,6 +45,7 @@ from usb_monitor.utils.platform import (
     UnsupportedPlatformError,
     detect_platform,
 )
+from usb_monitor.utils.protect import is_protection_enabled
 
 
 def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
@@ -80,6 +81,7 @@ def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
         f"  Alert manager: in-memory cooldown; emitted alerts persist locally",
         f"  CLI: subcommands (legacy flags such as --status still work)",
         f"  Storage: {storage_line} (local only, owner-only ACL, no telemetry)",
+        f"  Store DPAPI: {'on (USB_MONITOR_DPAPI=1)' if is_protection_enabled() else 'off (set USB_MONITOR_DPAPI=1 to encrypt new store writes)'}",
         f"  Reports: JSON/CSV/text under data/reports/ (report --export)",
         f"  GUI: local tkinter window (python main.py gui)",
         f"  PowerShell on PATH: {'Yes' if info.powershell_available else 'No'}",
