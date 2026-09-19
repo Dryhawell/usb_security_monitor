@@ -10,6 +10,7 @@ import queue
 import threading
 import tkinter as tk
 from collections.abc import Callable
+from pathlib import Path
 from tkinter import messagebox, ttk
 
 from usb_monitor import __app_name__, __version__
@@ -276,14 +277,15 @@ class MonitorApp:
         self._status.set(f"{device.safe_device_id} is now {state}. Events are still recorded.")
         self.refresh_tables()
 
-    def export_report(self) -> None:
+    def export_report(self, directory: Path | None = None) -> None:
         try:
             report = build_local_report(limit=0)
-            written = export_report(report)
+            written = export_report(report, directory)
         except (OSError, ValueError) as exc:
             messagebox.showerror(__app_name__, str(exc))
             return
-        self._status.set(f"Wrote {len(written)} report file(s) under data/reports/")
+        folder = written[0].parent if written else directory
+        self._status.set(f"Wrote {len(written)} report file(s) under {folder}/")
 
     def _mark_idle(self, text: str) -> None:
         self._start_btn.configure(state=tk.NORMAL)

@@ -65,7 +65,7 @@ malware.” They mean stacked observed characteristics.
 
 ## Test coverage
 
-`python -m pytest` currently has **52** tests. They are hardware-free
+`python -m pytest` currently has **53** tests. They are hardware-free
 and that is appropriate.
 
 Covered well:
@@ -85,6 +85,7 @@ Covered well:
 - Owner-only ACL after atomic JSON/report writes
 - Optional DPAPI wrapping of store JSON (`USB_MONITOR_DPAPI=1`)
 - Raw Windows source queue drops when full (bounded, logged)
+- GUI Start/Stop/export with a mocked source (no USB hardware)
 
 Gaps (honest, not a failing grade):
 
@@ -93,8 +94,6 @@ Gaps (honest, not a failing grade):
   [HARDWARE.md](HARDWARE.md): `--probe-source`, `--monitor`, `gui`.
 - Offline `--demo-*` checks in `usb_monitor.demos` are operator
   checks, not pytest (except CLI dispatch).
-- GUI Start/Stop/export paths are not driven end-to-end (would need a
-  longer Tk loop).
 
 ## Follow-ups
 
@@ -116,6 +115,7 @@ Gaps (honest, not a failing grade):
   plaintext; still no telemetry).
 - Raw event queue drop when full is covered without starting the live
   watcher.
+- GUI Start/Stop/export is driven with MockEventSource (no USB media).
 
 ### Later (not v1.0 blockers)
 
