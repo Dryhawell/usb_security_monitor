@@ -51,7 +51,7 @@ These are by design, not bugs:
 |---|---|
 | Visibility ≠ containment | The tool records plug/unplug. It does not block, eject, or scan the device. |
 | HID / composite devices | A BadUSB keyboard may show as a USB interface with no volume. Absence of a drive letter is not proof of malice or safety. |
-| Same VID:PID in 0.5s | Coalescing matches action + VID/PID (+ drive letter). Two sticks that share a VID:PID in the quiet window can merge; the first instance/serial wins. |
+| Same VID:PID in 0.5s | USB paths with different instance/serial segments stay separate. Disk/volume follow-ups without a serial still merge into the open burst. Two sticks that expose no serial can still merge. |
 | Dropped raw events | The Windows source queue is bounded (1024). When full, a raw event is logged and dropped. |
 | Capped JSON history | `events.json` keeps the newest 5000 records; `alerts.json` keeps 2000. Older rows are dropped, not archived. Inventory stays uncapped. |
 | Local plaintext identifiers | `devices.json` / `events.json` / JSON-CSV reports store unmasked serials. Anyone with the user profile can read them. |
@@ -72,6 +72,7 @@ Covered well:
 
 - Mock source contract
 - USB+disk+volume coalescing and disk-only drop
+- Two same-VID:PID USB paths with different serials stay separate
 - First-seen vs known
 - First-seen + missing serial is not CRITICAL
 - Rapid reconnect, alert cooldown, severity escalation
@@ -85,8 +86,6 @@ Gaps (honest, not a failing grade):
 - No live `WM_DEVICECHANGE` / SetupAPI integration test (needs Windows
   and authorized hardware; keep it manual: `--probe-source`,
   `--monitor`, `gui`).
-- No test that two same-VID:PID bursts in the quiet window stay
-  distinct.
 - No test for identity-change (`IDENTITY_INCONSISTENCY`) or trusted
   −10 mitigation.
 - No test that the raw queue drops when full.
@@ -102,12 +101,12 @@ Gaps (honest, not a failing grade):
 - Malware-disclaimer language remains on CLI, GUI, reports, and README.
 - Stacked PRs later merged to `main` (v1.0.0).
 - Event/alert store record cap is post-1.0 hardening (newest 5000
-  events / 2000 alerts). Coalescing-key rewrite stays deferred.
+  events / 2000 alerts). Coalescing uses instance/serial when both
+  sides of a match expose one.
 
 ### Later (not v1.0 blockers)
 
 - Split `main.py` demos out of the entry point.
-- Optional coalescing key that includes instance/serial when present.
 - Optional local encryption or tighter ACLs for JSON (still no
   telemetry).
 - Broader rule unit tests (identity change, trusted mitigation).
