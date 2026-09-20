@@ -978,7 +978,7 @@ def demo_gui() -> int:
     return 0 if ok else 1
 
 
-_DEMO_HANDLERS = (
+DEMO_HANDLERS = (
     ("demo_models", demo_models),
     ("demo_normalize", demo_normalize),
     ("demo_metadata", demo_metadata),
@@ -996,7 +996,7 @@ _DEMO_HANDLERS = (
 
 def run_requested_demo(args: Namespace) -> int | None:
     """Run the first --demo-* flag that is set. Return None if none requested."""
-    for name, handler in _DEMO_HANDLERS:
+    for name, handler in DEMO_HANDLERS:
         if getattr(args, name, False):
             result = handler()
             return 0 if result is None else int(result)
