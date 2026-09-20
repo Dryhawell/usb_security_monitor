@@ -1,15 +1,25 @@
 """Local GUI helpers and a short-lived tkinter window. No USB hardware."""
 
+import time
 import threading
 
+from usb_monitor.alerts import AlertManager
 from usb_monitor.gui.present import DISCLAIMER, alert_row, device_row, event_row
 from usb_monitor.inventory import DeviceInventory
 from usb_monitor.models.alert import Alert
 from usb_monitor.models.device import Device
 from usb_monitor.models.enums import EventType, Severity
 from usb_monitor.models.event import USBEvent
-from usb_monitor.monitoring import EventNormalizer, MockEventSource, USBMonitor
+from usb_monitor.monitoring import (
+    EventNormalizer,
+    MockEventSource,
+    NullMetadataCollector,
+    USBMonitor,
+)
 from usb_monitor.cli import parse_args, resolve_command
+from usb_monitor.reports import build_local_report
+from usb_monitor.storage import AlertStore, EventStore
+from tests.conftest import raw_event
 
 
 def test_gui_rows_mask_serial() -> None:
@@ -78,3 +88,78 @@ def test_operator_window_constructs_without_usb() -> None:
             root.destroy()
         except tk.TclError:
             pass
+
+
+def _wait_tk(root, predicate, *, timeout: float = 2.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        root.update()
+        if predicate():
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_start_stop_and_export_without_usb(tmp_path, monkeypatch) -> None:
+    import tkinter as tk
+
+    from usb_monitor.gui.app import MonitorApp
+
+    source = MockEventSource()
+    inventory = DeviceInventory(path=None)
+    events = EventStore(path=None)
+    alerts = AlertStore(path=None)
+
+    def factory() -> USBMonitor:
+        return USBMonitor(
+            source,
+            normalizer=EventNormalizer(quiet_period=0, max_wait=0),
+            collector=NullMetadataCollector(),
+            inventory=inventory,
+            event_store=events,
+            alerts=AlertManager(store=alerts),
+        )
+
+    monkeypatch.setattr(
+        "usb_monitor.gui.app.build_local_report",
+        lambda **_kwargs: build_local_report(
+            limit=0,
+            inventory=inventory,
+            events=events,
+            alerts=alerts,
+        ),
+    )
+
+    root = tk.Tk()
+    root.withdraw()
+    app = None
+    try:
+        app = MonitorApp(root, monitor_factory=factory)
+        app.start_monitor()
+        assert app._start_btn.instate(["disabled"])
+        assert not app._stop_btn.instate(["disabled"])
+        source.push(raw_event(kind="usb"))
+        assert _wait_tk(root, lambda: bool(app._events.get_children()))
+        row = app._events.item(app._events.get_children()[0], "values")
+        assert "DEMO1234" not in str(row)
+        assert "********1234" in str(row)
+        app.stop_monitor()
+        assert _wait_tk(root, lambda: app._status.get().startswith("Stopped"))
+        assert not app._start_btn.instate(["disabled"])
+        out = tmp_path / "reports"
+        app.export_report(out)
+        written = list(out.glob("usb-report-*"))
+        assert written
+        assert "Wrote" in app._status.get()
+        assert str(out) in app._status.get()
+    finally:
+        if app is not None:
+            try:
+                app._on_close()
+            except tk.TclError:
+                pass
+        else:
+            try:
+                root.destroy()
+            except tk.TclError:
+                pass
