@@ -79,7 +79,7 @@ def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
         f"  Anomaly windows: rapid reconnect / repeated events / multiple new devices",
         f"  Alert manager: in-memory cooldown; emitted alerts persist locally",
         f"  CLI: subcommands (legacy flags such as --status still work)",
-        f"  Storage: {storage_line} (local only, no telemetry)",
+        f"  Storage: {storage_line} (local only, owner-only ACL, no telemetry)",
         f"  Reports: JSON/CSV/text under data/reports/ (report --export)",
         f"  GUI: local tkinter window (python main.py gui)",
         f"  PowerShell on PATH: {'Yes' if info.powershell_available else 'No'}",
