@@ -65,7 +65,7 @@ malware.” They mean stacked observed characteristics.
 
 ## Test coverage
 
-`python -m pytest` currently has **40** tests. They are hardware-free
+`python -m pytest` currently has **43** tests. They are hardware-free
 and that is appropriate.
 
 Covered well:
@@ -76,6 +76,7 @@ Covered well:
 - First-seen vs known
 - First-seen + missing serial is not CRITICAL
 - Rapid reconnect, alert cooldown, severity escalation
+- Identity change (`IDENTITY_INCONSISTENCY`) and trusted −10 mitigation
 - Corrupt JSON recovery, report mask vs JSON serial
 - Event/alert store newest-record cap
 - Poll/metadata/store isolation, idempotent stop
@@ -88,8 +89,6 @@ Gaps (honest, not a failing grade):
 - No live `WM_DEVICECHANGE` / SetupAPI integration test (needs Windows
   and authorized hardware; keep it manual: `--probe-source`,
   `--monitor`, `gui`).
-- No test for identity-change (`IDENTITY_INCONSISTENCY`) or trusted
-  −10 mitigation.
 - No test that the raw queue drops when full.
 - Offline `--demo-*` checks in `usb_monitor.demos` are operator
   checks, not pytest (except CLI dispatch).
@@ -109,11 +108,11 @@ Gaps (honest, not a failing grade):
 - Offline `--demo-*` implementations live in `usb_monitor.demos`.
 - JSON/report writes apply an owner-only ACL (still plaintext, still
   local).
+- Rule tests cover manufacturer identity change and trusted −10.
 
 ### Later (not v1.0 blockers)
 
 - Optional local encryption for JSON (still no telemetry).
-- Broader rule unit tests (identity change, trusted mitigation).
 - Manual hardware test notes in docs (authorized sticks only).
 
 ## Verdict
