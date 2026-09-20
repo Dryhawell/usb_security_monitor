@@ -65,7 +65,7 @@ malware.” They mean stacked observed characteristics.
 
 ## Test coverage
 
-`python -m pytest` currently has **51** tests. They are hardware-free
+`python -m pytest` currently has **52** tests. They are hardware-free
 and that is appropriate.
 
 Covered well:
@@ -84,13 +84,13 @@ Covered well:
 - `--demo-*` flags still dispatch through `main.py`
 - Owner-only ACL after atomic JSON/report writes
 - Optional DPAPI wrapping of store JSON (`USB_MONITOR_DPAPI=1`)
+- Raw Windows source queue drops when full (bounded, logged)
 
 Gaps (honest, not a failing grade):
 
 - No live `WM_DEVICECHANGE` / SetupAPI integration test in pytest
   (needs Windows and authorized hardware). Follow
   [HARDWARE.md](HARDWARE.md): `--probe-source`, `--monitor`, `gui`.
-- No test that the raw queue drops when full.
 - Offline `--demo-*` checks in `usb_monitor.demos` are operator
   checks, not pytest (except CLI dispatch).
 - GUI Start/Stop/export paths are not driven end-to-end (would need a
@@ -114,6 +114,8 @@ Gaps (honest, not a failing grade):
   sticks only; pytest stays mock-only).
 - Optional DPAPI for store JSON (`USB_MONITOR_DPAPI=1`; reports stay
   plaintext; still no telemetry).
+- Raw event queue drop when full is covered without starting the live
+  watcher.
 
 ### Later (not v1.0 blockers)
 
