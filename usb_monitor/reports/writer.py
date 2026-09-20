@@ -104,7 +104,7 @@ def export_report(
     written: list[Path] = []
     if "json" in selected:
         path = target / f"{stem}.json"
-        write_json_atomic(path, report.to_dict(), prefix="report.")
+        write_json_atomic(path, report.to_dict(), prefix="report.", protect=False)
         written.append(path)
     if "text" in selected:
         path = target / f"{stem}.txt"

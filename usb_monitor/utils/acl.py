@@ -3,6 +3,8 @@
 Identifiers stay plaintext on disk. There is no encryption and no
 telemetry. This only narrows which other accounts on the machine can
 open events.json, alerts.json, devices.json, and exported reports.
+Optional DPAPI wrapping of store JSON is separate
+(`USB_MONITOR_DPAPI=1`).
 
 On Windows the DACL is current user + SYSTEM + Administrators, with
 inheritance blocked. On POSIX the mode is 0600. Failures are logged
