@@ -65,7 +65,7 @@ malware.” They mean stacked observed characteristics.
 
 ## Test coverage
 
-`python -m pytest` currently has **31** tests. They are hardware-free
+`python -m pytest` currently has **35** tests. They are hardware-free
 and that is appropriate.
 
 Covered well:
@@ -80,6 +80,7 @@ Covered well:
 - Event/alert store newest-record cap
 - Poll/metadata/store isolation, idempotent stop
 - GUI row masking and window construct/destroy
+- `--demo-*` flags still dispatch through `main.py`
 
 Gaps (honest, not a failing grade):
 
@@ -89,7 +90,8 @@ Gaps (honest, not a failing grade):
 - No test for identity-change (`IDENTITY_INCONSISTENCY`) or trusted
   −10 mitigation.
 - No test that the raw queue drops when full.
-- `main.py` demos are not pytest; they are operator checks.
+- Offline `--demo-*` checks in `usb_monitor.demos` are operator
+  checks, not pytest (except CLI dispatch).
 - GUI Start/Stop/export paths are not driven end-to-end (would need a
   longer Tk loop).
 
@@ -103,10 +105,10 @@ Gaps (honest, not a failing grade):
 - Event/alert store record cap is post-1.0 hardening (newest 5000
   events / 2000 alerts). Coalescing uses instance/serial when both
   sides of a match expose one.
+- Offline `--demo-*` implementations live in `usb_monitor.demos`.
 
 ### Later (not v1.0 blockers)
 
-- Split `main.py` demos out of the entry point.
 - Optional local encryption or tighter ACLs for JSON (still no
   telemetry).
 - Broader rule unit tests (identity change, trusted mitigation).
