@@ -42,7 +42,8 @@ Live watching is Windows-only (`windows_wm_devicechange`).
 
 A message-only window misses device-change broadcasts, so the source
 uses a hidden top-level window. Tests and demos use `MockEventSource`,
-which never talks to `WM_DEVICECHANGE`.
+which never talks to `WM_DEVICECHANGE`. Live plug/unplug checks with
+authorized storage: [HARDWARE.md](HARDWARE.md).
 
 The GUI runs Tk on the main thread and `USBMonitor.run(timeout=None,
 stop_when=...)` on a worker. The Windows source keeps its own thread.
@@ -90,4 +91,5 @@ CLI subcommands: `status`, `monitor`, `devices`, `events`, `alerts`,
 `data/reports/`. The GUI shows the same records and can export without
 opening USB media.
 
-Limitations and SOC caveats: [REVIEW.md](REVIEW.md).
+Limitations and SOC caveats: [REVIEW.md](REVIEW.md). Manual hardware
+checklist: [HARDWARE.md](HARDWARE.md).

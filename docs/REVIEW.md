@@ -86,9 +86,9 @@ Covered well:
 
 Gaps (honest, not a failing grade):
 
-- No live `WM_DEVICECHANGE` / SetupAPI integration test (needs Windows
-  and authorized hardware; keep it manual: `--probe-source`,
-  `--monitor`, `gui`).
+- No live `WM_DEVICECHANGE` / SetupAPI integration test in pytest
+  (needs Windows and authorized hardware). Follow
+  [HARDWARE.md](HARDWARE.md): `--probe-source`, `--monitor`, `gui`.
 - No test that the raw queue drops when full.
 - Offline `--demo-*` checks in `usb_monitor.demos` are operator
   checks, not pytest (except CLI dispatch).
@@ -109,11 +109,12 @@ Gaps (honest, not a failing grade):
 - JSON/report writes apply an owner-only ACL (still plaintext, still
   local).
 - Rule tests cover manufacturer identity change and trusted −10.
+- Manual hardware checklist lives in `docs/HARDWARE.md` (authorized
+  sticks only; pytest stays mock-only).
 
 ### Later (not v1.0 blockers)
 
 - Optional local encryption for JSON (still no telemetry).
-- Manual hardware test notes in docs (authorized sticks only).
 
 ## Verdict
 

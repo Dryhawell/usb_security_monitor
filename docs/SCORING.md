@@ -51,3 +51,5 @@ One candidate per CONNECT, in this priority:
 The same fingerprint is suppressed for 60 seconds unless severity
 escalates. Suppressed hits are not stored. Trust does not hide
 CONNECT/DISCONNECT; it only reduces heuristic weight.
+
+Live confirmation with authorized USB storage: [HARDWARE.md](HARDWARE.md).
