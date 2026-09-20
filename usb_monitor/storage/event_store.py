@@ -1,7 +1,8 @@
-"""Append-only local event history (events.json).
+"""Bounded local event history (events.json).
 
 Records stay on this machine. Stored documents may include serial
-numbers, like inventory; console and logs still mask them.
+numbers, like inventory; console and logs still mask them. Oldest
+events are dropped when the record cap is exceeded.
 """
 
 from __future__ import annotations
@@ -11,25 +12,40 @@ from pathlib import Path
 
 from usb_monitor.models.event import USBEvent
 from usb_monitor.storage.atomic import read_json_file, write_json_atomic
+from usb_monitor.storage.bounded import keep_newest
 from usb_monitor.utils.logger import get_logger
 from usb_monitor.utils.permissions import DEFAULT_DATA_DIR
 
 DEFAULT_EVENTS_PATH = DEFAULT_DATA_DIR / "events" / "events.json"
+DEFAULT_MAX_EVENTS = 5000
 _SCHEMA_VERSION = 1
 
 
 class EventStore:
     """In-memory event list with optional JSON persistence."""
 
-    def __init__(self, path: Path | None = DEFAULT_EVENTS_PATH) -> None:
+    def __init__(
+        self,
+        path: Path | None = DEFAULT_EVENTS_PATH,
+        *,
+        max_records: int = DEFAULT_MAX_EVENTS,
+    ) -> None:
+        if max_records < 1:
+            raise ValueError("max_records must be >= 1")
         self._path = path
+        self._max_records = max_records
         self._events: list[USBEvent] = []
         self._lock = threading.Lock()
         self._log = get_logger("storage.events")
 
     @classmethod
-    def load(cls, path: Path | None = DEFAULT_EVENTS_PATH) -> EventStore:
-        store = cls(path=path)
+    def load(
+        cls,
+        path: Path | None = DEFAULT_EVENTS_PATH,
+        *,
+        max_records: int = DEFAULT_MAX_EVENTS,
+    ) -> EventStore:
+        store = cls(path=path, max_records=max_records)
         store.reload()
         return store
 
@@ -57,17 +73,33 @@ class EventStore:
                 continue
             seen.add(event.event_id)
             loaded.append(event)
+        loaded, dropped = keep_newest(loaded, self._max_records)
         with self._lock:
             self._events = loaded
         self._log.info("Loaded %s event(s) from local store", len(loaded))
+        if dropped:
+            self._log.info(
+                "Dropped %s oldest event(s) to stay within %s records",
+                dropped,
+                self._max_records,
+            )
+            self.save()
 
     def append(self, event: USBEvent) -> None:
         """Record one event and persist when a path is configured."""
+        dropped = 0
         with self._lock:
             if any(item.event_id == event.event_id for item in self._events):
                 return
             self._events.append(event)
+            self._events, dropped = keep_newest(self._events, self._max_records)
         self.save()
+        if dropped:
+            self._log.info(
+                "Dropped %s oldest event(s) to stay within %s records",
+                dropped,
+                self._max_records,
+            )
 
     def list_events(self) -> list[USBEvent]:
         with self._lock:
@@ -75,7 +107,7 @@ class EventStore:
 
     def stats(self) -> dict[str, int]:
         events = self.list_events()
-        return {"total": len(events)}
+        return {"total": len(events), "max_records": self._max_records}
 
     def save(self) -> None:
         if self._path is None:

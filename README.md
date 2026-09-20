@@ -48,16 +48,16 @@ anomaly signals — without crossing into offensive USB techniques.
 - Explainable rule-based risk scoring (heuristic, not a malware verdict)
 - Sliding-window anomaly signals (rapid reconnect, event flaps, new-device bursts)
 - Local session alerts with fingerprint deduplication and cooldown
-- Local JSON storage (`events.json`, `alerts.json`, `devices.json`)
+- Local JSON storage (`events.json`, `alerts.json`, `devices.json`) with a newest-record cap on events and alerts
 - CLI subcommands to list inventory, events, and alerts
 - Local report export (JSON, CSV, and human-readable text under `data/reports/`)
 - Unit tests with a mocked event source (`pytest`, no USB hardware)
 - Threading, exception isolation, and graceful shutdown for the live watcher
 - Optional local GUI (tkinter) for operators who prefer a window over the CLI
 
-Deferred items (not in v1.0.0): event-store rotation, coalescing-key
-rewrite, splitting `main.py` demos, extra rule tests, and optional local
-JSON encryption. See [docs/REVIEW.md](docs/REVIEW.md).
+Deferred items (not in v1.0.0): coalescing-key rewrite, splitting
+`main.py` demos, extra rule tests, and optional local JSON encryption.
+See [docs/REVIEW.md](docs/REVIEW.md).
 
 ## Privacy
 
@@ -73,9 +73,9 @@ It will:
 
 Local paths:
 
-- `data/events/` — event records (`events.json`)
+- `data/events/` — event records (`events.json`, newest 5000 kept)
 - `data/inventory/` — observed devices (`devices.json`)
-- `data/alerts/` — emitted alerts (`alerts.json`)
+- `data/alerts/` — emitted alerts (`alerts.json`, newest 2000 kept)
 - `data/reports/` — exported reports (`usb-report-*.json`, `*.csv`, `*.txt`)
 - `logs/usb_monitor.log` — application log
 

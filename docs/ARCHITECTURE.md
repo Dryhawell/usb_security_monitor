@@ -64,14 +64,16 @@ Writes use a temp file plus replace. Paths stay under this project:
 
 | Path | Content |
 |---|---|
-| `data/events/events.json` | append-only event history |
-| `data/alerts/alerts.json` | emitted alerts only |
+| `data/events/events.json` | newest 5000 events (oldest dropped) |
+| `data/alerts/alerts.json` | newest 2000 emitted alerts (oldest dropped) |
 | `data/inventory/devices.json` | observed identities |
 | `data/reports/` | exported JSON / CSV / text |
 | `logs/usb_monitor.log` | rotating application log |
 
-Suppressed cooldown hits are not written to disk. `create_monitor()`
-persists; demos that must not touch `data/` pass `path=None`.
+Suppressed cooldown hits are not written to disk. Event and alert files
+drop the oldest rows when the cap is hit; inventory is not capped so
+first-seen history remains. `create_monitor()` persists; demos that
+must not touch `data/` pass `path=None`.
 
 ## Presentation
 
