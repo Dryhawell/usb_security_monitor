@@ -10,11 +10,11 @@ This project is intended for:
 - endpoint security fundamentals
 - Windows-focused USB event monitoring
 
-**Current status:** v1.0.0 on `main`, with post-1.0 hardening (PRs
-#9–#18) merged. Planned scope is complete (live watch, inventory,
-explainable scoring, local alerts/storage, CLI, reports, GUI, tests,
-docs, review). Heuristic scores are **not** a malware verdict. See
-[docs/REVIEW.md](docs/REVIEW.md).
+**Current status:** v1.1.0 on `main`. Planned scope is complete (live
+watch, inventory, explainable scoring, local alerts/storage, CLI,
+reports, GUI, tests, docs, review), plus post-1.0 hardening (store
+caps, coalescing serial, ACL/DPAPI, extra tests). Heuristic scores are
+**not** a malware verdict. See [docs/REVIEW.md](docs/REVIEW.md).
 
 ## Overview
 
@@ -58,8 +58,8 @@ anomaly signals — without crossing into offensive USB techniques.
 - Optional local GUI (tkinter) for operators who prefer a window over the CLI
 
 The planned post-1.0 hardening items in
-[docs/REVIEW.md](docs/REVIEW.md) are complete. Further work is ordinary
-product follow-up.
+[docs/REVIEW.md](docs/REVIEW.md) shipped in **v1.1.0**. Further work is
+ordinary product follow-up.
 
 ## Privacy
 

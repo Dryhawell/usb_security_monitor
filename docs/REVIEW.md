@@ -3,7 +3,7 @@
 Defensive Blue Team / code-quality review of USB Security Monitor.
 This is not a malware-detection claim or a pentest. Phase 19 stamped
 the planned scope as **v1.0.0**. Post-1.0 hardening (pull requests
-#9–#18) later merged to `main`.
+#9–#18) later merged to `main` and is stamped **v1.1.0**.
 
 Scope: local endpoint USB/removable-storage visibility. The tool must
 not exploit devices, execute USB contents, hide itself, or send
@@ -57,7 +57,7 @@ These are by design, not bugs:
 | Local plaintext identifiers | By default `devices.json` / `events.json` / JSON-CSV reports store unmasked serials. Writes apply an owner-only ACL. Set `USB_MONITOR_DPAPI=1` to wrap new store JSON with the current Windows user DPAPI key; reports stay plaintext. Anyone who can run as this user can still decrypt. |
 | Trust is an operator flag | `TRUSTED_DEVICE` (−10) lowers the heuristic. It is not an allowlist and not a safety guarantee. |
 | GUI worker vs Windows thread | Tk is main-thread; monitor worker is daemon; Windows pump is non-daemon. A hung `GetMessageW` can delay process exit after Stop. |
-| Post-1.0 stack on `main` | v1.0.0 and hardening PRs #9–#18 are on `main`. Live `WM_DEVICECHANGE` pytest stays out of CI; use [HARDWARE.md](HARDWARE.md). |
+| Post-1.0 stack on `main` | v1.1.0 includes v1.0.0 plus hardening PRs #9–#18. Live `WM_DEVICECHANGE` pytest stays out of CI; use [HARDWARE.md](HARDWARE.md). |
 | No remote SOC integration | There is no syslog/SIEM shipper. That is correct for “local only”; an analyst must copy reports by hand. |
 
 Do not treat HIGH/CRITICAL or `SUSPICIOUS_DEVICE` as “this stick is
@@ -122,6 +122,11 @@ Gaps (honest, not a failing grade):
 - Offline `--demo-*` flags run as pytest (still no USB hardware;
   `--demo-gui` is covered by the GUI window tests).
 
+### v1.1.0 — done
+
+- `__version__` is `1.1.0`. This is the post-1.0 hardening stamp, not
+  a malware-detection release.
+
 ### Later (not v1.0 blockers)
 
 - None currently tracked. Further work is ordinary product follow-up.
@@ -129,6 +134,5 @@ Gaps (honest, not a failing grade):
 ## Verdict
 
 The tree is a coherent **local USB visibility** portfolio piece: layered,
-explainable, and explicit about what it cannot do. v1.0.0 plus the
-post-1.0 hardening on `main` is still **not** an EDR, antivirus, or
-BadUSB detector.
+explainable, and explicit about what it cannot do. v1.1.0 is still
+**not** an EDR, antivirus, or BadUSB detector.
