@@ -3,6 +3,8 @@
 import time
 import threading
 
+import pytest
+
 from usb_monitor.alerts import AlertManager
 from usb_monitor.gui.present import DISCLAIMER, alert_row, device_row, event_row
 from usb_monitor.inventory import DeviceInventory
@@ -66,28 +68,15 @@ def test_run_until_stop_when() -> None:
     assert monitor.is_running is False
 
 
-def test_operator_window_constructs_without_usb() -> None:
+def _tk_root():
     import tkinter as tk
 
-    from usb_monitor.gui.app import MonitorApp
-
-    def factory() -> USBMonitor:
-        return USBMonitor(
-            MockEventSource(),
-            inventory=DeviceInventory(path=None),
-        )
-
-    root = tk.Tk()
-    root.withdraw()
     try:
-        MonitorApp(root, monitor_factory=factory)
-        root.update_idletasks()
-        assert "USB Security Monitor" in root.title()
-    finally:
-        try:
-            root.destroy()
-        except tk.TclError:
-            pass
+        root = tk.Tk()
+    except tk.TclError as exc:
+        pytest.skip(f"tkinter display unavailable: {exc}")
+    root.withdraw()
+    return root
 
 
 def _wait_tk(root, predicate, *, timeout: float = 2.0) -> bool:
@@ -130,11 +119,12 @@ def test_start_stop_and_export_without_usb(tmp_path, monkeypatch) -> None:
         ),
     )
 
-    root = tk.Tk()
-    root.withdraw()
+    root = _tk_root()
     app = None
     try:
         app = MonitorApp(root, monitor_factory=factory)
+        root.update_idletasks()
+        assert "USB Security Monitor" in root.title()
         app.start_monitor()
         assert app._start_btn.instate(["disabled"])
         assert not app._stop_btn.instate(["disabled"])

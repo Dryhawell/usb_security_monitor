@@ -1,6 +1,6 @@
 """USB Security Monitor entry point.
 
-v1.0.0: live watching, CLI, reports, and the local GUI are the operator
+v1.1.0: live watching, CLI, reports, and the local GUI are the operator
 surface. Offline --demo-* checks live in usb_monitor.demos. Scores are
 not a malware verdict.
 """
@@ -240,7 +240,7 @@ def main(argv: list[str] | None = None) -> int:
     logger = get_logger("main")
 
     logger.info("%s %s started", __app_name__, __version__)
-    logger.info("v1.0.0: local USB visibility monitor")
+    logger.info("v%s: local USB visibility monitor", __version__)
 
     info = detect_platform()
     perms = check_permissions()
@@ -301,7 +301,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"{__app_name__} v{__version__}")
     print(f"Platform: {info.display_name}")
-    print("v1.0.0: local USB visibility. See docs/REVIEW.md")
+    print(f"v{__version__}: local USB visibility. See docs/REVIEW.md")
     print("Also: status, monitor, devices, events, alerts, report, trust ID, untrust ID")
     print("Legacy flags such as --status and --monitor still work.")
     return 0 if perms.can_persist else 1

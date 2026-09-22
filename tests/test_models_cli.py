@@ -78,3 +78,9 @@ def test_demo_cli_still_runs_from_main() -> None:
     from main import main
 
     assert main(["--demo-cli"]) == 0
+
+
+def test_package_version() -> None:
+    from usb_monitor import __version__
+
+    assert __version__ == "1.1.0"

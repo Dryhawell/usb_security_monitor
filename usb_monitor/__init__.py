@@ -7,4 +7,4 @@ exploit devices, execute USB contents, or transmit data off-machine.
 __all__ = ["__app_name__", "__version__"]
 
 __app_name__ = "USB Security Monitor"
-__version__ = "1.0.0"
+__version__ = "1.1.0"
