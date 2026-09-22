@@ -10,9 +10,10 @@ This project is intended for:
 - endpoint security fundamentals
 - Windows-focused USB event monitoring
 
-**Current status:** v1.0.0 — planned scope is complete (live watch, inventory,
-explainable scoring, local alerts/storage, CLI, reports, GUI, tests, docs,
-review). Heuristic scores are **not** a malware verdict. See
+**Current status:** v1.0.0 on `main`, with post-1.0 hardening (PRs
+#9–#18) merged. Planned scope is complete (live watch, inventory,
+explainable scoring, local alerts/storage, CLI, reports, GUI, tests,
+docs, review). Heuristic scores are **not** a malware verdict. See
 [docs/REVIEW.md](docs/REVIEW.md).
 
 ## Overview

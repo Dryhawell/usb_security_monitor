@@ -1,9 +1,9 @@
 # Phase 18 review
 
-Defensive Blue Team / code-quality review of USB Security Monitor as of
-`feat/project-docs` (GUI + docs stack). This is not a malware-detection
-claim or a pentest. Phase 19 stamped this tree as **v1.0.0** without
-merging the stacked PRs into `main`.
+Defensive Blue Team / code-quality review of USB Security Monitor.
+This is not a malware-detection claim or a pentest. Phase 19 stamped
+the planned scope as **v1.0.0**. Post-1.0 hardening (pull requests
+#9–#18) later merged to `main`.
 
 Scope: local endpoint USB/removable-storage visibility. The tool must
 not exploit devices, execute USB contents, hide itself, or send
@@ -57,7 +57,7 @@ These are by design, not bugs:
 | Local plaintext identifiers | By default `devices.json` / `events.json` / JSON-CSV reports store unmasked serials. Writes apply an owner-only ACL. Set `USB_MONITOR_DPAPI=1` to wrap new store JSON with the current Windows user DPAPI key; reports stay plaintext. Anyone who can run as this user can still decrypt. |
 | Trust is an operator flag | `TRUSTED_DEVICE` (−10) lowers the heuristic. It is not an allowlist and not a safety guarantee. |
 | GUI worker vs Windows thread | Tk is main-thread; monitor worker is daemon; Windows pump is non-daemon. A hung `GetMessageW` can delay process exit after Stop. |
-| Stacked PRs vs `main` | v1.0.0 is on `main`. Later hardening lands as ordinary PRs against `main`. |
+| Post-1.0 stack on `main` | v1.0.0 and hardening PRs #9–#18 are on `main`. Live `WM_DEVICECHANGE` pytest stays out of CI; use [HARDWARE.md](HARDWARE.md). |
 | No remote SOC integration | There is no syslog/SIEM shipper. That is correct for “local only”; an analyst must copy reports by hand. |
 
 Do not treat HIGH/CRITICAL or `SUSPICIOUS_DEVICE` as “this stick is
@@ -100,7 +100,11 @@ Gaps (honest, not a failing grade):
 
 - `__version__` is `1.0.0`; README status marks the planned scope complete.
 - Malware-disclaimer language remains on CLI, GUI, reports, and README.
-- Stacked PRs later merged to `main` (v1.0.0).
+- Planned-scope stacked PRs merged to `main` as v1.0.0 (PRs #1–#8).
+- Post-1.0 hardening PRs #9–#18 later merged to `main` (store cap,
+  coalescing serial, demo split, ACL, rule tests, hardware notes,
+  optional DPAPI, queue-drop test, GUI Start/Stop/export, offline
+  demo pytest).
 - Event/alert store record cap is post-1.0 hardening (newest 5000
   events / 2000 alerts). Coalescing uses instance/serial when both
   sides of a match expose one.
@@ -125,6 +129,6 @@ Gaps (honest, not a failing grade):
 ## Verdict
 
 The tree is a coherent **local USB visibility** portfolio piece: layered,
-explainable, and explicit about what it cannot do. v1.0.0 is a version
-and documentation stamp of this stacked tree. It is **not** an EDR,
-antivirus, or BadUSB detector.
+explainable, and explicit about what it cannot do. v1.0.0 plus the
+post-1.0 hardening on `main` is still **not** an EDR, antivirus, or
+BadUSB detector.
