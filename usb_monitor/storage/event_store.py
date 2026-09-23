@@ -12,7 +12,7 @@ from pathlib import Path
 
 from usb_monitor.models.event import USBEvent
 from usb_monitor.storage.atomic import read_json_file, write_json_atomic
-from usb_monitor.storage.bounded import keep_newest
+from usb_monitor.storage.bounded import coerce_dropped_total, keep_newest
 from usb_monitor.utils.logger import get_logger
 from usb_monitor.utils.permissions import DEFAULT_DATA_DIR
 
@@ -35,6 +35,7 @@ class EventStore:
         self._path = path
         self._max_records = max_records
         self._events: list[USBEvent] = []
+        self._dropped_total = 0
         self._lock = threading.Lock()
         self._log = get_logger("storage.events")
 
@@ -76,6 +77,7 @@ class EventStore:
         loaded, dropped = keep_newest(loaded, self._max_records)
         with self._lock:
             self._events = loaded
+            self._dropped_total = coerce_dropped_total(raw) + dropped
         self._log.info("Loaded %s event(s) from local store", len(loaded))
         if dropped:
             self._log.info(
@@ -93,6 +95,8 @@ class EventStore:
                 return
             self._events.append(event)
             self._events, dropped = keep_newest(self._events, self._max_records)
+            if dropped:
+                self._dropped_total += dropped
         self.save()
         if dropped:
             self._log.info(
@@ -106,16 +110,22 @@ class EventStore:
             return list(self._events)
 
     def stats(self) -> dict[str, int]:
-        events = self.list_events()
-        return {"total": len(events), "max_records": self._max_records}
+        with self._lock:
+            return {
+                "total": len(self._events),
+                "max_records": self._max_records,
+                "dropped_total": self._dropped_total,
+            }
 
     def save(self) -> None:
         if self._path is None:
             return
-        payload = {
-            "version": _SCHEMA_VERSION,
-            "events": [event.to_dict() for event in self.list_events()],
-        }
+        with self._lock:
+            payload = {
+                "version": _SCHEMA_VERSION,
+                "dropped_total": self._dropped_total,
+                "events": [event.to_dict() for event in self._events],
+            }
         try:
             write_json_atomic(self._path, payload, prefix="events.")
         except OSError as exc:

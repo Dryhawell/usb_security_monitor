@@ -10,7 +10,7 @@ from usb_monitor.storage.atomic import (
     write_json_atomic,
     write_text_atomic,
 )
-from usb_monitor.storage.bounded import keep_newest
+from usb_monitor.storage.bounded import coerce_dropped_total, keep_newest
 from usb_monitor.storage.event_store import (
     DEFAULT_EVENTS_PATH,
     DEFAULT_MAX_EVENTS,
@@ -25,6 +25,7 @@ __all__ = [
     "AlertStore",
     "EventStore",
     "keep_newest",
+    "coerce_dropped_total",
     "read_json_file",
     "write_json_atomic",
     "write_text_atomic",

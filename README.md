@@ -50,7 +50,7 @@ anomaly signals — without crossing into offensive USB techniques.
 - Explainable rule-based risk scoring (heuristic, not a malware verdict)
 - Sliding-window anomaly signals (rapid reconnect, event flaps, new-device bursts)
 - Local session alerts with fingerprint deduplication and cooldown
-- Local JSON storage (`events.json`, `alerts.json`, `devices.json`) with a newest-record cap on events and alerts, owner-only ACLs after each write, and optional Windows DPAPI (`USB_MONITOR_DPAPI=1`)
+- Local JSON storage (`events.json`, `alerts.json`, `devices.json`) with a newest-record cap on events and alerts (oldest drops counted in `dropped_total`), owner-only ACLs after each write, and optional Windows DPAPI (`USB_MONITOR_DPAPI=1`)
 - CLI subcommands to list inventory, events, and alerts
 - Local report export (JSON, CSV, and human-readable text under `data/reports/`)
 - Unit tests with a mocked event source (`pytest`, no USB hardware)

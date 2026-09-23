@@ -6,9 +6,19 @@ and not telemetry.
 
 from __future__ import annotations
 
-from typing import TypeVar
+from typing import Any, TypeVar
 
 T = TypeVar("T")
+
+
+def coerce_dropped_total(raw: Any) -> int:
+    """Read a persisted drop counter. Invalid values become 0."""
+    if not isinstance(raw, dict):
+        return 0
+    value = raw.get("dropped_total", 0)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return 0
+    return value
 
 
 def keep_newest(items: list[T], max_records: int) -> tuple[list[T], int]:

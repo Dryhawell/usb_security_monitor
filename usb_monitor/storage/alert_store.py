@@ -12,7 +12,7 @@ from pathlib import Path
 
 from usb_monitor.models.alert import Alert
 from usb_monitor.storage.atomic import read_json_file, write_json_atomic
-from usb_monitor.storage.bounded import keep_newest
+from usb_monitor.storage.bounded import coerce_dropped_total, keep_newest
 from usb_monitor.utils.logger import get_logger
 from usb_monitor.utils.permissions import DEFAULT_DATA_DIR
 
@@ -35,6 +35,7 @@ class AlertStore:
         self._path = path
         self._max_records = max_records
         self._alerts: list[Alert] = []
+        self._dropped_total = 0
         self._lock = threading.Lock()
         self._log = get_logger("storage.alerts")
 
@@ -76,6 +77,7 @@ class AlertStore:
         loaded, dropped = keep_newest(loaded, self._max_records)
         with self._lock:
             self._alerts = loaded
+            self._dropped_total = coerce_dropped_total(raw) + dropped
         self._log.info("Loaded %s alert(s) from local store", len(loaded))
         if dropped:
             self._log.info(
@@ -92,6 +94,8 @@ class AlertStore:
                 return
             self._alerts.append(alert)
             self._alerts, dropped = keep_newest(self._alerts, self._max_records)
+            if dropped:
+                self._dropped_total += dropped
         self.save()
         if dropped:
             self._log.info(
@@ -105,18 +109,22 @@ class AlertStore:
             return list(self._alerts)
 
     def stats(self) -> dict[str, int]:
-        return {
-            "total": len(self.list_alerts()),
-            "max_records": self._max_records,
-        }
+        with self._lock:
+            return {
+                "total": len(self._alerts),
+                "max_records": self._max_records,
+                "dropped_total": self._dropped_total,
+            }
 
     def save(self) -> None:
         if self._path is None:
             return
-        payload = {
-            "version": _SCHEMA_VERSION,
-            "alerts": [alert.to_dict() for alert in self.list_alerts()],
-        }
+        with self._lock:
+            payload = {
+                "version": _SCHEMA_VERSION,
+                "dropped_total": self._dropped_total,
+                "alerts": [alert.to_dict() for alert in self._alerts],
+            }
         try:
             write_json_atomic(self._path, payload, prefix="alerts.")
         except OSError as exc:

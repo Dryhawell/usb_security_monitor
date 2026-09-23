@@ -74,16 +74,17 @@ Paths stay under this project:
 
 | Path | Content |
 |---|---|
-| `data/events/events.json` | newest 5000 events (oldest dropped) |
-| `data/alerts/alerts.json` | newest 2000 emitted alerts (oldest dropped) |
+| `data/events/events.json` | newest 5000 events; `dropped_total` counts oldest rows removed by the cap |
+| `data/alerts/alerts.json` | newest 2000 emitted alerts; same `dropped_total` counter |
 | `data/inventory/devices.json` | observed identities |
 | `data/reports/` | exported JSON / CSV / text |
 | `logs/usb_monitor.log` | rotating application log |
 
 Suppressed cooldown hits are not written to disk. Event and alert files
-drop the oldest rows when the cap is hit; inventory is not capped so
-first-seen history remains. `create_monitor()` persists; demos that
-must not touch `data/` pass `path=None`.
+drop the oldest rows when the cap is hit and persist how many were
+removed (`dropped_total`). Inventory is not capped so first-seen history
+remains. Dropped rows are not archived. `create_monitor()` persists;
+demos that must not touch `data/` pass `path=None`.
 
 ## Presentation
 
