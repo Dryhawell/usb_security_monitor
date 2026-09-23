@@ -60,8 +60,10 @@ def format_status(info: PlatformInfo, perms: PermissionStatus) -> str:
     stats = DeviceInventory.load().stats()
     inventory_line = f"{stats['total']} device(s), {stats['trusted']} trusted"
     storage_line = (
-        f"events.json {event_stats['total']}, "
-        f"alerts.json {alert_stats['total']}, "
+        f"events.json {event_stats['total']} "
+        f"(dropped {event_stats.get('dropped_total', 0)}), "
+        f"alerts.json {alert_stats['total']} "
+        f"(dropped {alert_stats.get('dropped_total', 0)}), "
         f"devices.json {stats['total']}"
     )
     lines = [

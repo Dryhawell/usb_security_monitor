@@ -53,7 +53,7 @@ These are by design, not bugs:
 | HID / composite devices | A BadUSB keyboard may show as a USB interface with no volume. Absence of a drive letter is not proof of malice or safety. |
 | Same VID:PID in 0.5s | USB paths with different instance/serial segments stay separate. Disk/volume follow-ups without a serial still merge into the open burst. Two sticks that expose no serial can still merge. |
 | Dropped raw events | The Windows source queue is bounded (1024). When full, a raw event is logged and dropped. |
-| Capped JSON history | `events.json` keeps the newest 5000 records; `alerts.json` keeps 2000. Older rows are dropped, not archived. Inventory stays uncapped. |
+| Capped JSON history | `events.json` keeps the newest 5000 records; `alerts.json` keeps 2000. Older rows are dropped, not archived. `dropped_total` in the JSON envelope (and `status` / reports) counts how many were removed. Inventory stays uncapped. |
 | Local plaintext identifiers | By default `devices.json` / `events.json` / JSON-CSV reports store unmasked serials. Writes apply an owner-only ACL. Set `USB_MONITOR_DPAPI=1` to wrap new store JSON with the current Windows user DPAPI key; reports stay plaintext. Anyone who can run as this user can still decrypt. |
 | Trust is an operator flag | `TRUSTED_DEVICE` (−10) lowers the heuristic. It is not an allowlist and not a safety guarantee. |
 | GUI worker vs Windows thread | Tk is main-thread; monitor worker is daemon; Windows pump is non-daemon. A hung `GetMessageW` can delay process exit after Stop. |
@@ -65,7 +65,7 @@ malware.” They mean stacked observed characteristics.
 
 ## Test coverage
 
-`python -m pytest` currently has **64** tests. They are hardware-free
+`python -m pytest` currently has **66** tests. They are hardware-free
 and that is appropriate.
 
 Covered well:
@@ -79,6 +79,7 @@ Covered well:
 - Identity change (`IDENTITY_INCONSISTENCY`) and trusted −10 mitigation
 - Corrupt JSON recovery, report mask vs JSON serial
 - Event/alert store newest-record cap
+- Persisted `dropped_total` when the cap removes oldest rows
 - Poll/metadata/store isolation, idempotent stop
 - GUI row masking and window construct/destroy
 - `--demo-*` flags still dispatch through `main.py`
@@ -126,6 +127,11 @@ Gaps (honest, not a failing grade):
 
 - `__version__` is `1.1.0`. This is the post-1.0 hardening stamp, not
   a malware-detection release.
+
+### After v1.1.0
+
+- Event/alert JSON persist `dropped_total` so `status` and reports show
+  cap truncation. Oldest rows are still not archived.
 
 ### Later (not v1.0 blockers)
 

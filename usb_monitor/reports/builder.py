@@ -38,6 +38,8 @@ class LocalReport:
     alerts: list[Alert]
     event_total: int
     alert_total: int
+    event_dropped_total: int = 0
+    alert_dropped_total: int = 0
     limit: int | None = DEFAULT_REPORT_LIMIT
 
     def to_dict(self) -> dict[str, Any]:
@@ -56,11 +58,13 @@ class LocalReport:
             "events": {
                 "total": self.event_total,
                 "shown": len(self.events),
+                "dropped_total": self.event_dropped_total,
                 "items": [event.to_dict() for event in self.events],
             },
             "alerts": {
                 "total": self.alert_total,
                 "shown": len(self.alerts),
+                "dropped_total": self.alert_dropped_total,
                 "items": [alert.to_dict() for alert in self.alerts],
             },
         }
@@ -75,8 +79,12 @@ class LocalReport:
                 f"Inventory: {self.inventory_stats.get('total', 0)} device(s), "
                 f"{self.inventory_stats.get('trusted', 0)} trusted"
             ),
-            f"Events: {self.event_total} (showing {len(self.events)})",
-            f"Alerts: {self.alert_total} (showing {len(self.alerts)})",
+            _history_line(
+                "Events", self.event_total, len(self.events), self.event_dropped_total
+            ),
+            _history_line(
+                "Alerts", self.alert_total, len(self.alerts), self.alert_dropped_total
+            ),
             DISCLAIMER,
             LOCAL_ONLY_NOTE,
             "",
@@ -128,8 +136,17 @@ def build_local_report(
         alerts=_apply_limit(all_alerts, limit, newest_first=True),
         event_total=len(all_events),
         alert_total=len(all_alerts),
+        event_dropped_total=int(event_store.stats().get("dropped_total", 0)),
+        alert_dropped_total=int(alert_store.stats().get("dropped_total", 0)),
         limit=limit,
     )
+
+
+def _history_line(label: str, total: int, shown: int, dropped_total: int) -> str:
+    line = f"{label}: {total} (showing {shown})"
+    if dropped_total:
+        line += f"; oldest dropped by cap: {dropped_total}"
+    return line
 
 
 def _apply_limit(
